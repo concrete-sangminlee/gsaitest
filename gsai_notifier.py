@@ -138,11 +138,26 @@ def load_state(path: Path) -> Dict[str, Any]:
       }
     }
     """
+    default_state: Dict[str, Any] = {"version": 1, "feeds": {}}
     if not path.exists():
-        return {"version": 1, "feeds": {}}
+        return default_state
 
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    # 빈 파일/깨진 JSON 등으로 봇이 멈추지 않도록 방어적으로 읽습니다.
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception as e:
+        LOG.warning("상태 파일 읽기 실패(%s). 초기 상태로 시작합니다: %s", path, e)
+        return default_state
+
+    if not raw.strip():
+        LOG.info("상태 파일이 비어 있습니다(%s). 초기 상태로 시작합니다.", path)
+        return default_state
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        LOG.warning("상태 파일 JSON 파싱 실패(%s). 초기 상태로 시작합니다: %s", path, e)
+        return default_state
 
     # 과거에 단순 dict 형태로 저장했을 경우를 흡수
     if isinstance(data, dict) and "feeds" not in data and "version" not in data:
@@ -150,7 +165,7 @@ def load_state(path: Path) -> Dict[str, Any]:
         return {"version": 1, "feeds": feeds}
 
     if not isinstance(data, dict) or "feeds" not in data:
-        return {"version": 1, "feeds": {}}
+        return default_state
 
     return data
 
