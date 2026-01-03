@@ -31,6 +31,9 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           FEED_URLS: "https://gsai.snu.ac.kr/feed/"
           STATE_FILE: "state.json"
+          # 수동 실행(workflow_dispatch)에서는 동작 확인을 위해 최신 1개를 한 번 보내고,
+          # 스케줄 실행(schedule)에서는 첫 실행에 알림을 보내지 않습니다(스팸/중복 방지).
+          INITIAL_NOTIFY_COUNT: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           ON_STATE_MISS: "skip"
           MAX_ITEMS_PER_MESSAGE: "10"
           VERIFY_SSL: "true"
