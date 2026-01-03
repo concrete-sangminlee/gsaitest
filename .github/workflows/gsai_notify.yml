@@ -1,0 +1,52 @@
+name: GSAI RSS → Slack Notify
+
+on:
+  schedule:
+    # GitHub Actions 스케줄은 지연될 수 있습니다(플랫폼 특성).
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run notifier
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          FEED_URLS: "https://gsai.snu.ac.kr/feed/"
+          STATE_FILE: "state.json"
+          ON_STATE_MISS: "skip"
+          MAX_ITEMS_PER_MESSAGE: "10"
+          VERIFY_SSL: "true"
+        run: |
+          python gsai_notifier.py
+
+      - name: Commit state.json (if changed)
+        run: |
+          if git diff --quiet -- state.json; then
+            echo "No state changes"
+            exit 0
+          fi
+          git config user.name "gsai-notifier-bot"
+          git config user.email "gsai-notifier-bot@users.noreply.github.com"
+          git add state.json
+          git commit -m "chore: update feed state"
+          git push
+
+
