@@ -29,6 +29,8 @@ jobs:
       - name: Run notifier
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
           FEED_URLS: "https://gsai.snu.ac.kr/feed/"
           STATE_FILE: "state.json"
           # 수동 실행(workflow_dispatch)에서는 동작 확인을 위해 최신 1개를 한 번 보내고,
