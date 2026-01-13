@@ -441,11 +441,15 @@ def send_to_notion(
 
     # Notion API로 블록 추가 (한 번에 최대 100개까지 가능)
     try:
+        LOG.debug("Notion API 호출: page_id=%s, blocks=%d개", normalized_page_id, len(blocks))
         client.blocks.children.append(block_id=normalized_page_id, children=blocks)
         LOG.info("Notion 전송 완료: %d개 글을 페이지에 추가했습니다.", len(items))
     except Exception as e:
         error_msg = str(e)
-        LOG.error("Notion API 실패: %s", error_msg)
+        LOG.error("Notion API 실패: %s", error_msg, exc_info=True)
+        # 더 자세한 에러 정보 출력
+        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            LOG.error("Notion API 응답: %s", e.response.text[:500])
         raise RuntimeError(f"Notion API 실패: {error_msg}") from e
 
 
@@ -481,6 +485,9 @@ def run_once(cfg: Config) -> int:
                     
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
+                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
+                                cfg.notion_token[:10] if cfg.notion_token else "None",
+                                cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
                         try:
                             send_to_notion(
                                 token=str(cfg.notion_token),
@@ -490,7 +497,12 @@ def run_once(cfg: Config) -> int:
                                 dry_run=cfg.dry_run,
                             )
                         except Exception as e:
-                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e)
+                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
+                    else:
+                        if not cfg.notion_token:
+                            LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
+                        if not cfg.notion_page_id:
+                            LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
 
             newest_id = entry_uid(entries[0]) if entries else None
             feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
@@ -515,6 +527,9 @@ def run_once(cfg: Config) -> int:
                     
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
+                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
+                                cfg.notion_token[:10] if cfg.notion_token else "None",
+                                cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
                         try:
                             send_to_notion(
                                 token=str(cfg.notion_token),
@@ -524,7 +539,12 @@ def run_once(cfg: Config) -> int:
                                 dry_run=cfg.dry_run,
                             )
                         except Exception as e:
-                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e)
+                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
+                    else:
+                        if not cfg.notion_token:
+                            LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
+                        if not cfg.notion_page_id:
+                            LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
 
             # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
             feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
@@ -543,6 +563,9 @@ def run_once(cfg: Config) -> int:
                 
                 # Notion 전송
                 if cfg.notion_token and cfg.notion_page_id:
+                    LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
+                            cfg.notion_token[:10] if cfg.notion_token else "None",
+                            cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
                     try:
                         send_to_notion(
                             token=str(cfg.notion_token),
@@ -552,7 +575,12 @@ def run_once(cfg: Config) -> int:
                             dry_run=cfg.dry_run,
                         )
                     except Exception as e:
-                        LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e)
+                        LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
+                else:
+                    if not cfg.notion_token:
+                        LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
+                    if not cfg.notion_page_id:
+                        LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
         except Exception as e:
             overall_exit = 3
             LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
