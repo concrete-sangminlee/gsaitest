@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -294,7 +295,7 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
     """
     Notion 페이지 ID를 정규화합니다.
     URL 형식: https://www.notion.so/Notice-27e2cbf5657380319715fa24fb5d4d15
-    -> 페이지 ID: 27e2cbf5657380319715fa24fb5d4d15 (하이픈 제거)
+    -> 페이지 ID: 27e2cbf5657380319715fa24fb5d4d15 (하이픈 제거, 32자 hex)
     """
     s = (page_id_or_url or "").strip()
     if not s:
@@ -302,19 +303,36 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
     
     # URL에서 페이지 ID 추출
     if "notion.so" in s:
+        # URL에서 쿼리 파라미터와 프래그먼트 제거
+        if "?" in s:
+            s = s.split("?")[0]
+        if "#" in s:
+            s = s.split("#")[0]
+        
         # 마지막 하이픈 이후 부분이 페이지 ID
+        # 예: https://www.notion.so/Notice-27e2cbf5657380319715fa24fb5d4d15
+        # -> ['https://www.notion.so/Notice', '27e2cbf5657380319715fa24fb5d4d15']
         parts = s.split("-")
-        if parts:
+        if len(parts) >= 2:
+            # 마지막 부분이 페이지 ID
             page_id = parts[-1]
             # 32자 hex 문자열인지 확인
             if len(page_id) == 32 and all(c in "0123456789abcdef" for c in page_id.lower()):
                 return page_id
+        
+        # 하이픈이 없는 경우: URL 경로의 마지막 부분에서 32자 hex 찾기
+        # 예: https://www.notion.so/27e2cbf5657380319715fa24fb5d4d15
+        match = re.search(r'([0-9a-f]{32})', s.lower())
+        if match:
+            return match.group(1)
     
     # 이미 페이지 ID인 경우 (하이픈 제거)
-    s = s.replace("-", "")
-    if len(s) == 32 and all(c in "0123456789abcdef" for c in s.lower()):
-        return s
+    # 예: 27e2cbf5-6573-8031-9715-fa24fb5d4d15 -> 27e2cbf5657380319715fa24fb5d4d15
+    cleaned = s.replace("-", "")
+    if len(cleaned) == 32 and all(c in "0123456789abcdef" for c in cleaned.lower()):
+        return cleaned
     
+    # 그 외의 경우 원본 반환 (에러는 호출하는 쪽에서 처리)
     return s
 
 
@@ -339,7 +357,12 @@ def send_to_notion(
     normalized_page_id = _normalize_notion_page_id(page_id)
     if not normalized_page_id:
         raise ValueError(f"유효하지 않은 Notion 페이지 ID: {page_id}")
-
+    
+    # 정규화된 페이지 ID가 32자 hex가 아니면 에러
+    if len(normalized_page_id) != 32 or not all(c in "0123456789abcdef" for c in normalized_page_id.lower()):
+        raise ValueError(f"정규화된 페이지 ID가 유효하지 않습니다: {normalized_page_id} (원본: {page_id})")
+    
+    LOG.debug("페이지 ID 정규화: %s -> %s", page_id[:50], normalized_page_id)
     client = Client(auth=token)
 
     # 각 글을 Notion 블록으로 추가
