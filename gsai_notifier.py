@@ -27,7 +27,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -255,38 +255,134 @@ def compute_new_entries(
     return new_entries, newest_id, True
 
 
-def format_slack_text(feed_title: str, items: List[feedparser.FeedParserDict], *, index: int, total: int) -> str:
-    # Slack 링크 포맷: <url|text>
-    header = f":newspaper: *{feed_title}* 새 글 {len(items)}개"
-    if total > 1:
-        header += f" ({index}/{total})"
+def _format_date_kr(pub_str: str, entry: feedparser.FeedParserDict) -> str:
+    """날짜 문자열을 한국식 포맷으로 변환합니다."""
+    try:
+        parsed_time = entry.get("published_parsed") or entry.get("updated_parsed")
+        if parsed_time:
+            dt = datetime(*parsed_time[:6], tzinfo=timezone.utc)
+            kst = timezone(timedelta(hours=9))
+            dt_kst = dt.astimezone(kst)
+            return dt_kst.strftime("%Y. %m. %d")
+    except Exception:
+        pass
+    return pub_str[:10] if pub_str else ""
 
-    lines: List[str] = [header]
+
+def _now_kst_str() -> str:
+    """현재 KST 시각을 포맷팅합니다."""
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(kst)
+    return now.strftime("%Y. %m. %d  %H:%M KST")
+
+
+def format_slack_payload(
+    feed_title: str,
+    items: List[feedparser.FeedParserDict],
+    *,
+    feed_url: str,
+    site_url: str,
+    index: int,
+    total: int,
+) -> Dict[str, Any]:
+    """Slack Block Kit 기반 프리미엄 페이로드를 생성합니다."""
+    count = len(items)
+    subtitle = f"🔔 {count}건의 새로운 글"
+    if total > 1:
+        subtitle += f"  ({index}/{total})"
+
+    blocks: List[Dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"📢 {feed_title} 새 글",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": subtitle},
+            ],
+        },
+        {"type": "divider"},
+    ]
+
     for e in items:
         title = entry_title(e) or "(제목 없음)"
         link = entry_link(e)
         pub = entry_pub(e)
+        date_str = _format_date_kr(pub, e)
+
+        section_text = f"> *{title}*"
+        if date_str:
+            section_text += f"\n> 📅 {date_str}"
+
+        section: Dict[str, Any] = {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": section_text},
+        }
         if link:
-            line = f"- <{link}|{title}>"
-        else:
-            line = f"- {title}"
-        if pub:
-            line += f"  _({pub})_"
-        lines.append(line)
-    return "\n".join(lines)
+            section["accessory"] = {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "확인하기", "emoji": True},
+                "url": link,
+                "style": "primary",
+            }
+        blocks.append(section)
 
+    # 하단 영역
+    view_url = site_url or feed_url.split("/feed")[0] or feed_url
+    blocks.extend([
+        {"type": "divider"},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "📋 전체 글 보기", "emoji": True},
+                    "url": view_url,
+                },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"🏫 GSAI Notice Bot  ｜  {_now_kst_str()}"},
+            ],
+        },
+    ])
 
-def send_to_slack(webhook_url: str, text: str, *, dry_run: bool) -> None:
-    if dry_run:
-        print(text)
-        return
-
-    payload = {
-        "text": text,
-        "mrkdwn": True,
+    fallback = f"📢 {feed_title} 새 글 {count}건"
+    return {
+        "text": fallback,
         "unfurl_links": False,
         "unfurl_media": False,
+        "attachments": [{"color": "#003876", "blocks": blocks}],
     }
+
+
+def send_to_slack(webhook_url: str, payload: Dict[str, Any], *, dry_run: bool) -> None:
+    if dry_run:
+        for att in payload.get("attachments", []):
+            for block in att.get("blocks", []):
+                btype = block.get("type")
+                if btype == "header":
+                    print(f"\n  {block['text']['text']}")
+                elif btype == "context":
+                    for el in block["elements"]:
+                        print(f"  {el.get('text', '')}")
+                elif btype == "section":
+                    print(f"  {block['text']['text']}")
+                elif btype == "divider":
+                    print(f"  {'─' * 40}")
+                elif btype == "actions":
+                    for el in block["elements"]:
+                        print(f"         [ {el['text']['text']} ]")
+        print()
+        return
+
     resp = requests.post(webhook_url, json=payload, timeout=20)
     resp.raise_for_status()
 
@@ -492,6 +588,7 @@ def run_once(cfg: Config) -> int:
             continue
 
         feed_title = (parsed.feed.get("title") or feed_url).strip()
+        site_url = (parsed.feed.get("link") or "").strip()
         entries = list(parsed.entries or [])
 
         feed_state = feeds.get(feed_url) or {}
@@ -503,8 +600,8 @@ def run_once(cfg: Config) -> int:
                 initial_items = list(reversed(entries[: cfg.initial_notify_count]))
                 chunks = list(_chunked(initial_items, cfg.max_items_per_message))
                 for idx, chunk in enumerate(chunks, start=1):
-                    text = format_slack_text(feed_title, chunk, index=idx, total=len(chunks))
-                    send_to_slack(cfg.slack_webhook_url or "", text, dry_run=cfg.dry_run)
+                    payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
+                    send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
                     
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
@@ -545,8 +642,8 @@ def run_once(cfg: Config) -> int:
                 items = list(reversed(entries))
                 chunks = list(_chunked(items, cfg.max_items_per_message))
                 for idx, chunk in enumerate(chunks, start=1):
-                    text = format_slack_text(feed_title, chunk, index=idx, total=len(chunks))
-                    send_to_slack(cfg.slack_webhook_url or "", text, dry_run=cfg.dry_run)
+                    payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
+                    send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
                     
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
@@ -581,8 +678,8 @@ def run_once(cfg: Config) -> int:
         chunks = list(_chunked(new_entries, cfg.max_items_per_message))
         try:
             for idx, chunk in enumerate(chunks, start=1):
-                text = format_slack_text(feed_title, chunk, index=idx, total=len(chunks))
-                send_to_slack(cfg.slack_webhook_url or "", text, dry_run=cfg.dry_run)
+                payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
+                send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
                 
                 # Notion 전송
                 if cfg.notion_token and cfg.notion_page_id:
