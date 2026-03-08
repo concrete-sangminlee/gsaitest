@@ -1,0 +1,23 @@
+name: Keepalive Workflow
+
+on:
+  schedule:
+    # 매 50일마다 실행 (60일 비활성 제한 전에 갱신)
+    - cron: "0 0 1,21 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Keepalive
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          time_elapsed: 50
