@@ -31,7 +31,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
-          FEED_URLS: "https://gsai.snu.ac.kr/feed/"
+          FEED_URLS: "https://gsai.snu.ac.kr/feed/,https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/,https://gsai.snu.ac.kr/category/board_3_gn_44wycjtw_20201202131822/feed/,https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/,https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/,https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/"
           STATE_FILE: "state.json"
           # 수동 실행(workflow_dispatch)에서는 동작 확인을 위해 최신 1개를 한 번 보내고,
           # 스케줄 실행(schedule)에서는 첫 실행에 알림을 보내지 않습니다(스팸/중복 방지).
