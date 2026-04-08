@@ -597,16 +597,17 @@ def run_once(cfg: Config) -> int:
 
         # 첫 실행: 기준점만 찍거나, 옵션으로 최신 N개를 보냅니다.
         if last_seen_id is None:
+            initial_items: List[feedparser.FeedParserDict] = []
             if entries and cfg.initial_notify_count > 0:
                 initial_items = [e for e in reversed(entries[: cfg.initial_notify_count]) if entry_uid(e) not in sent_uids]
                 chunks = list(_chunked(initial_items, cfg.max_items_per_message))
                 for idx, chunk in enumerate(chunks, start=1):
                     payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
                     send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
-                    
+
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
-                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
+                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s",
                                 cfg.notion_token[:10] if cfg.notion_token else "None",
                                 cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
                         try:
@@ -641,6 +642,7 @@ def run_once(cfg: Config) -> int:
                 last_seen_id,
                 feed_url,
             )
+            items: List[feedparser.FeedParserDict] = []
             if cfg.on_state_miss == "send" and entries:
                 # 피드에 보이는 항목을 모두 새 글로 간주(다른 피드에서 보낸 건 제외)
                 items = [e for e in reversed(entries) if entry_uid(e) not in sent_uids]
@@ -648,10 +650,10 @@ def run_once(cfg: Config) -> int:
                 for idx, chunk in enumerate(chunks, start=1):
                     payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
                     send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
-                    
+
                     # Notion 전송
                     if cfg.notion_token and cfg.notion_page_id:
-                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
+                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s",
                                 cfg.notion_token[:10] if cfg.notion_token else "None",
                                 cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
                         try:
@@ -677,6 +679,10 @@ def run_once(cfg: Config) -> int:
 
         if not new_entries:
             LOG.info("새 글 없음: %s", feed_title)
+            # sent_uids 필터링으로 비워진 경우에도 상태를 갱신해야
+            # 다음 실행에서 같은 글을 다시 보내지 않습니다.
+            if newest_id:
+                feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
             continue
 
         # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
