@@ -48,6 +48,8 @@ except ImportError:
 
 LOG = logging.getLogger("gsai_notifier")
 
+_SENT_ARTICLES_MAX_AGE_DAYS = 7
+
 
 def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
@@ -224,6 +226,52 @@ def entry_link(entry: feedparser.FeedParserDict) -> str:
 
 def entry_pub(entry: feedparser.FeedParserDict) -> str:
     return (entry.get("published") or entry.get("updated") or "").strip()
+
+
+def _prune_sent_articles(sent_articles: Dict[str, str]) -> Dict[str, str]:
+    """오래된 전송 이력을 제거합니다."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SENT_ARTICLES_MAX_AGE_DAYS)
+    pruned: Dict[str, str] = {}
+    for key, ts in sent_articles.items():
+        try:
+            dt = datetime.fromisoformat(ts)
+            if dt >= cutoff:
+                pruned[key] = ts
+        except (ValueError, TypeError):
+            pass
+    return pruned
+
+
+def _entry_already_sent(
+    entry: feedparser.FeedParserDict,
+    sent_ids: set,
+    sent_articles: Dict[str, str],
+) -> bool:
+    """한 번이라도 보낸 글인지 uid와 link 모두로 확인합니다."""
+    uid = entry_uid(entry)
+    link = entry_link(entry)
+    if uid in sent_ids or uid in sent_articles:
+        return True
+    if link and (link in sent_ids or link in sent_articles):
+        return True
+    return False
+
+
+def _mark_entries_sent(
+    entries: Iterable[feedparser.FeedParserDict],
+    sent_ids: set,
+    sent_articles: Dict[str, str],
+) -> None:
+    """보낸 글의 uid와 link를 모두 기록합니다."""
+    now = _now_iso()
+    for e in entries:
+        uid = entry_uid(e)
+        link = entry_link(e)
+        sent_ids.add(uid)
+        sent_articles[uid] = now
+        if link:
+            sent_ids.add(link)
+            sent_articles[link] = now
 
 
 def compute_new_entries(
@@ -576,8 +624,13 @@ def run_once(cfg: Config) -> int:
     state = load_state(cfg.state_file)
     feeds: Dict[str, Any] = state.setdefault("feeds", {})
 
+    # 영구 전송 이력: 이전 실행에서 보낸 글도 중복 방지 (uid+link 모두 기록)
+    sent_articles: Dict[str, str] = _prune_sent_articles(
+        state.get("sent_articles", {})
+    )
+
     overall_exit = 0
-    sent_uids: set = set()  # 피드 간 중복 알림 방지
+    sent_ids: set = set()  # 피드 간 중복 알림 방지 (uid + link)
 
     for feed_url in cfg.feed_urls:
         LOG.info("피드 확인: %s", feed_url)
@@ -599,7 +652,7 @@ def run_once(cfg: Config) -> int:
         if last_seen_id is None:
             initial_items: List[feedparser.FeedParserDict] = []
             if entries and cfg.initial_notify_count > 0:
-                initial_items = [e for e in reversed(entries[: cfg.initial_notify_count]) if entry_uid(e) not in sent_uids]
+                initial_items = [e for e in reversed(entries[: cfg.initial_notify_count]) if not _entry_already_sent(e, sent_ids, sent_articles)]
                 chunks = list(_chunked(initial_items, cfg.max_items_per_message))
                 for idx, chunk in enumerate(chunks, start=1):
                     payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
@@ -626,15 +679,15 @@ def run_once(cfg: Config) -> int:
                         if not cfg.notion_page_id:
                             LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
 
-            sent_uids.update(entry_uid(e) for e in initial_items)
+            _mark_entries_sent(initial_items, sent_ids, sent_articles)
             newest_id = entry_uid(entries[0]) if entries else None
             feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
             LOG.info("첫 실행 기준점 저장: %s", newest_id)
             continue
 
         new_entries, newest_id, found = compute_new_entries(entries, last_seen_id)
-        # 다른 피드에서 이미 보낸 글 제거 (피드 간 중복 방지)
-        new_entries = [e for e in new_entries if entry_uid(e) not in sent_uids]
+        # 다른 피드 또는 이전 실행에서 이미 보낸 글 제거 (uid+link 이중 검사)
+        new_entries = [e for e in new_entries if not _entry_already_sent(e, sent_ids, sent_articles)]
 
         if not found:
             LOG.warning(
@@ -645,7 +698,7 @@ def run_once(cfg: Config) -> int:
             items: List[feedparser.FeedParserDict] = []
             if cfg.on_state_miss == "send" and entries:
                 # 피드에 보이는 항목을 모두 새 글로 간주(다른 피드에서 보낸 건 제외)
-                items = [e for e in reversed(entries) if entry_uid(e) not in sent_uids]
+                items = [e for e in reversed(entries) if not _entry_already_sent(e, sent_ids, sent_articles)]
                 chunks = list(_chunked(items, cfg.max_items_per_message))
                 for idx, chunk in enumerate(chunks, start=1):
                     payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
@@ -672,7 +725,7 @@ def run_once(cfg: Config) -> int:
                         if not cfg.notion_page_id:
                             LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
 
-            sent_uids.update(entry_uid(e) for e in items)
+            _mark_entries_sent(items, sent_ids, sent_articles)
             # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
             feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
             continue
@@ -717,10 +770,11 @@ def run_once(cfg: Config) -> int:
             LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
             continue
 
-        sent_uids.update(entry_uid(e) for e in new_entries)
+        _mark_entries_sent(new_entries, sent_ids, sent_articles)
         feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
         LOG.info("상태 업데이트: %s -> %s", last_seen_id, newest_id)
 
+    state["sent_articles"] = sent_articles
     save_state(cfg.state_file, state)
     return overall_exit
 
