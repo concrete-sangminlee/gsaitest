@@ -2,28 +2,28 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/IPAI-Research-Seminar-AI-시대-연구/",
-      "updated_at": "2026-06-23T04:32:58.847328+00:00"
+      "last_id": "https://gsai.snu.ac.kr/서울대-도재영-교수-연구팀-인간-가치관-기반-LLM-정/",
+      "updated_at": "2026-06-23T08:06:20.645830+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-1학기-박사학위논문심사-공개발표-일정-안내26/",
-      "updated_at": "2026-06-23T04:33:01.235801+00:00"
+      "updated_at": "2026-06-23T08:06:22.955644+00:00"
     },
     "https://gsai.snu.ac.kr/category/board_3_gn_44wycjtw_20201202131822/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-특별수강생-선발계획-알림629/",
-      "updated_at": "2026-06-23T04:33:03.159765+00:00"
+      "updated_at": "2026-06-23T08:06:24.713419+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-장기해외연수-프로그램-참가자박사과/",
-      "updated_at": "2026-06-23T04:33:04.854696+00:00"
+      "updated_at": "2026-06-23T08:06:28.231142+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026년도「실험실-특화형-창업선도대학」사업-대학원생-/",
-      "updated_at": "2026-06-23T04:33:07.519541+00:00"
+      "updated_at": "2026-06-23T08:06:31.951100+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
       "last_id": "https://gsai.snu.ac.kr/채용설명회-여기어때-CTO-채용설명회-안내528-목13/",
-      "updated_at": "2026-06-23T04:33:09.556294+00:00"
+      "updated_at": "2026-06-23T08:06:34.012666+00:00"
     }
   }
 }
