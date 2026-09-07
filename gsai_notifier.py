@@ -50,6 +50,13 @@ LOG = logging.getLogger("gsai_notifier")
 
 _SENT_ARTICLES_MAX_AGE_DAYS = 7
 
+# SNU 방화벽이 봇 UA를 차단하므로 브라우저 UA를 사용합니다(USER_AGENT로 재정의 가능).
+_USER_AGENT = os.getenv(
+    "USER_AGENT",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+)
+
 
 def _parse_bool(value: Optional[str], default: bool) -> bool:
     if value is None:
@@ -195,13 +202,29 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
 
 
 def fetch_feed(url: str, *, verify_ssl: bool) -> feedparser.FeedParserDict:
+    # SNU 방화벽(WAF)이 봇 성격의 User-Agent를 차단하므로 일반 브라우저로 요청합니다.
     headers = {
-        "User-Agent": "gsai-slack-bot/1.0 (+https://gsai.snu.ac.kr)",
+        "User-Agent": _USER_AGENT,
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
     resp = requests.get(url, headers=headers, timeout=20, verify=verify_ssl)
     resp.raise_for_status()
+
+    # 방화벽 차단 페이지는 200으로 내려오므로 본문을 직접 확인합니다.
+    if b"waf/error" in resp.content or b"snucert.snu.ac.kr" in resp.content:
+        raise RuntimeError(
+            f"방화벽(WAF)에 차단되었습니다. User-Agent 확인이 필요합니다: {url}"
+        )
+
     parsed = feedparser.parse(resp.content)
+
+    # 항목이 0개면 정상 응답이 아닐 가능성이 큽니다(차단/장애/포맷 변경).
+    # 조용히 "새 글 없음"으로 넘어가면 알림이 멈춘 걸 알 수 없으므로 실패로 처리합니다.
+    if not parsed.entries:
+        reason = f" ({parsed.get('bozo_exception')})" if parsed.get("bozo") else ""
+        raise RuntimeError(f"피드에 항목이 없습니다{reason}: {url}")
+
     return parsed
 
 
