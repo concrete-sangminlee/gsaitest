@@ -1,0 +1,8 @@
+# Development / verification tooling.
+#
+# NOTE: These tools are pre-installed in the sandbox toolchain
+# (~/.pyenv/versions/3.11.15/bin/). Installing them via pip requires
+# network access, which is not available inside the sandbox.
+ruff==0.6.9
+mypy==1.11.2
+pytest==8.3.3
