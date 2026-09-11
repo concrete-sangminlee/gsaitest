@@ -26,24 +26,41 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
-import feedparser
-import requests
+try:
+    import feedparser
+except ImportError:  # pragma: no cover
+    # feedparser는 fetch_feed 안에서만 필요합니다. 순수 로직/테스트가
+    # 이 라이브러리 없이도 모듈을 import할 수 있도록 지연 처리합니다.
+    feedparser = None
+
+try:
+    import requests
+except ImportError:  # pragma: no cover
+    # requests는 fetch_feed/send_to_slack 안에서만 필요합니다.
+    requests = None
 
 try:
     # 로컬에서 .env 파일을 쓰고 싶은 경우를 지원합니다.
     from dotenv import load_dotenv
 except Exception:  # pragma: no cover
-    load_dotenv = None  # type: ignore[assignment]
+    load_dotenv = None
 
 try:
     from notion_client import Client
 except ImportError:
-    Client = None  # type: ignore[assignment, misc]
+    Client = None
+
+
+# 피드 항목을 다루는 순수 헬퍼들이 feedparser에 강하게 묶이지 않도록
+# 가벼운 타입 별칭을 사용합니다. 런타임에는 feedparser의 항목(dict 유사)이
+# 그대로 들어오며, 테스트에서는 평범한 dict를 넣어도 동작합니다.
+Entry = Mapping[str, Any]
 
 
 LOG = logging.getLogger("gsai_notifier")
@@ -57,8 +74,12 @@ _USER_AGENT = os.getenv(
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 )
 
+_ACCEPT_HEADER = (
+    "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1"
+)
 
-def _parse_bool(value: Optional[str], default: bool) -> bool:
+
+def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     v = value.strip().lower()
@@ -69,7 +90,7 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
     return default
 
 
-def _parse_int(value: Optional[str], default: int) -> int:
+def _parse_int(value: str | None, default: int) -> int:
     if value is None:
         return default
     try:
@@ -82,7 +103,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _chunked(items: List[Any], size: int) -> Iterable[List[Any]]:
+def _chunked(items: list[Any], size: int) -> Iterable[list[Any]]:
     if size <= 0:
         yield items
         return
@@ -92,16 +113,16 @@ def _chunked(items: List[Any], size: int) -> Iterable[List[Any]]:
 
 @dataclass(frozen=True)
 class Config:
-    slack_webhook_url: Optional[str]
-    feed_urls: List[str]
+    slack_webhook_url: str | None
+    feed_urls: list[str]
     state_file: Path
     initial_notify_count: int
     max_items_per_message: int
     on_state_miss: str  # "skip" | "send"
     verify_ssl: bool
     dry_run: bool
-    notion_token: Optional[str]
-    notion_page_id: Optional[str]
+    notion_token: str | None
+    notion_page_id: str | None
 
 
 def load_config() -> Config:
@@ -150,7 +171,7 @@ def load_config() -> Config:
     )
 
 
-def load_state(path: Path) -> Dict[str, Any]:
+def load_state(path: Path) -> dict[str, Any]:
     """
     상태 파일 포맷(v1):
     {
@@ -160,7 +181,7 @@ def load_state(path: Path) -> Dict[str, Any]:
       }
     }
     """
-    default_state: Dict[str, Any] = {"version": 1, "feeds": {}}
+    default_state: dict[str, Any] = {"version": 1, "feeds": {}}
     if not path.exists():
         return default_state
 
@@ -192,7 +213,7 @@ def load_state(path: Path) -> Dict[str, Any]:
     return data
 
 
-def save_state(path: Path, state: Dict[str, Any]) -> None:
+def save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
@@ -201,11 +222,16 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def fetch_feed(url: str, *, verify_ssl: bool) -> feedparser.FeedParserDict:
+def fetch_feed(url: str, *, verify_ssl: bool) -> Any:
+    if requests is None or feedparser is None:  # pragma: no cover
+        raise RuntimeError(
+            "requests/feedparser 라이브러리가 설치되지 않았습니다. pip install -r requirements.txt"
+        )
+
     # SNU 방화벽(WAF)이 봇 성격의 User-Agent를 차단하므로 일반 브라우저로 요청합니다.
     headers = {
         "User-Agent": _USER_AGENT,
-        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1",
+        "Accept": _ACCEPT_HEADER,
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
     resp = requests.get(url, headers=headers, timeout=20, verify=verify_ssl)
@@ -213,9 +239,7 @@ def fetch_feed(url: str, *, verify_ssl: bool) -> feedparser.FeedParserDict:
 
     # 방화벽 차단 페이지는 200으로 내려오므로 본문을 직접 확인합니다.
     if b"waf/error" in resp.content or b"snucert.snu.ac.kr" in resp.content:
-        raise RuntimeError(
-            f"방화벽(WAF)에 차단되었습니다. User-Agent 확인이 필요합니다: {url}"
-        )
+        raise RuntimeError(f"방화벽(WAF)에 차단되었습니다. User-Agent 확인이 필요합니다: {url}")
 
     parsed = feedparser.parse(resp.content)
 
@@ -228,7 +252,7 @@ def fetch_feed(url: str, *, verify_ssl: bool) -> feedparser.FeedParserDict:
     return parsed
 
 
-def entry_uid(entry: feedparser.FeedParserDict) -> str:
+def entry_uid(entry: Entry) -> str:
     # WordPress RSS는 보통 guid / link가 안정적입니다.
     for key in ("id", "guid", "link"):
         v = entry.get(key)
@@ -239,22 +263,22 @@ def entry_uid(entry: feedparser.FeedParserDict) -> str:
     return f"{title}|{published}"
 
 
-def entry_title(entry: feedparser.FeedParserDict) -> str:
+def entry_title(entry: Entry) -> str:
     return (entry.get("title") or "").strip()
 
 
-def entry_link(entry: feedparser.FeedParserDict) -> str:
+def entry_link(entry: Entry) -> str:
     return (entry.get("link") or "").strip()
 
 
-def entry_pub(entry: feedparser.FeedParserDict) -> str:
+def entry_pub(entry: Entry) -> str:
     return (entry.get("published") or entry.get("updated") or "").strip()
 
 
-def _prune_sent_articles(sent_articles: Dict[str, str]) -> Dict[str, str]:
+def _prune_sent_articles(sent_articles: dict[str, str]) -> dict[str, str]:
     """오래된 전송 이력을 제거합니다."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=_SENT_ARTICLES_MAX_AGE_DAYS)
-    pruned: Dict[str, str] = {}
+    pruned: dict[str, str] = {}
     for key, ts in sent_articles.items():
         try:
             dt = datetime.fromisoformat(ts)
@@ -266,9 +290,9 @@ def _prune_sent_articles(sent_articles: Dict[str, str]) -> Dict[str, str]:
 
 
 def _entry_already_sent(
-    entry: feedparser.FeedParserDict,
+    entry: Entry,
     sent_ids: set,
-    sent_articles: Dict[str, str],
+    sent_articles: dict[str, str],
 ) -> bool:
     """한 번이라도 보낸 글인지 uid와 link 모두로 확인합니다."""
     uid = entry_uid(entry)
@@ -281,9 +305,9 @@ def _entry_already_sent(
 
 
 def _mark_entries_sent(
-    entries: Iterable[feedparser.FeedParserDict],
+    entries: Iterable[Entry],
     sent_ids: set,
-    sent_articles: Dict[str, str],
+    sent_articles: dict[str, str],
 ) -> None:
     """보낸 글의 uid와 link를 모두 기록합니다."""
     now = _now_iso()
@@ -298,9 +322,9 @@ def _mark_entries_sent(
 
 
 def compute_new_entries(
-    entries: List[feedparser.FeedParserDict],
-    last_seen_id: Optional[str],
-) -> Tuple[List[feedparser.FeedParserDict], Optional[str], bool]:
+    entries: list[Entry],
+    last_seen_id: str | None,
+) -> tuple[list[Entry], str | None, bool]:
     """
     returns: (new_entries_oldest_first, newest_id, last_seen_found_in_feed)
     """
@@ -311,7 +335,7 @@ def compute_new_entries(
     if last_seen_id is None:
         return [], newest_id, True
 
-    new_entries: List[feedparser.FeedParserDict] = []
+    new_entries: list[Entry] = []
     found = False
     for e in entries:
         if entry_uid(e) == last_seen_id:
@@ -326,7 +350,7 @@ def compute_new_entries(
     return new_entries, newest_id, True
 
 
-def _format_date_kr(pub_str: str, entry: feedparser.FeedParserDict) -> str:
+def _format_date_kr(pub_str: str, entry: Entry) -> str:
     """날짜 문자열을 한국식 포맷으로 변환합니다."""
     try:
         parsed_time = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -349,20 +373,20 @@ def _now_kst_str() -> str:
 
 def format_slack_payload(
     feed_title: str,
-    items: List[feedparser.FeedParserDict],
+    items: list[Entry],
     *,
     feed_url: str,
     site_url: str,
     index: int,
     total: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Slack Block Kit 기반 프리미엄 페이로드를 생성합니다."""
     count = len(items)
     subtitle = f"🔔 {count}건의 새로운 글"
     if total > 1:
         subtitle += f"  ({index}/{total})"
 
-    blocks: List[Dict[str, Any]] = [
+    blocks: list[dict[str, Any]] = [
         {
             "type": "header",
             "text": {
@@ -390,7 +414,7 @@ def format_slack_payload(
         if date_str:
             section_text += f"\n> 📅 {date_str}"
 
-        section: Dict[str, Any] = {
+        section: dict[str, Any] = {
             "type": "section",
             "text": {"type": "mrkdwn", "text": section_text},
         }
@@ -405,25 +429,27 @@ def format_slack_payload(
 
     # 하단 영역
     view_url = site_url or feed_url.split("/feed")[0] or feed_url
-    blocks.extend([
-        {"type": "divider"},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "📋 전체 글 보기", "emoji": True},
-                    "url": view_url,
-                },
-            ],
-        },
-        {
-            "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": f"🏫 GSAI Notice Bot  ｜  {_now_kst_str()}"},
-            ],
-        },
-    ])
+    blocks.extend(
+        [
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "📋 전체 글 보기", "emoji": True},
+                        "url": view_url,
+                    },
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f"🏫 GSAI Notice Bot  ｜  {_now_kst_str()}"},
+                ],
+            },
+        ]
+    )
 
     fallback = f"📢 {feed_title} 새 글 {count}건"
     return {
@@ -434,7 +460,7 @@ def format_slack_payload(
     }
 
 
-def send_to_slack(webhook_url: str, payload: Dict[str, Any], *, dry_run: bool) -> None:
+def send_to_slack(webhook_url: str, payload: dict[str, Any], *, dry_run: bool) -> None:
     if dry_run:
         for att in payload.get("attachments", []):
             for block in att.get("blocks", []):
@@ -454,6 +480,11 @@ def send_to_slack(webhook_url: str, payload: Dict[str, Any], *, dry_run: bool) -
         print()
         return
 
+    if requests is None:  # pragma: no cover
+        raise RuntimeError(
+            "requests 라이브러리가 설치되지 않았습니다. pip install -r requirements.txt"
+        )
+
     resp = requests.post(webhook_url, json=payload, timeout=20)
     resp.raise_for_status()
 
@@ -467,7 +498,7 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
     s = (page_id_or_url or "").strip()
     if not s:
         return ""
-    
+
     # URL에서 페이지 ID 추출
     if "notion.so" in s:
         # URL에서 쿼리 파라미터와 프래그먼트 제거
@@ -475,7 +506,7 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
             s = s.split("?")[0]
         if "#" in s:
             s = s.split("#")[0]
-        
+
         # 마지막 하이픈 이후 부분이 페이지 ID
         # 예: https://www.notion.so/Notice-27e2cbf5657380319715fa24fb5d4d15
         # -> ['https://www.notion.so/Notice', '27e2cbf5657380319715fa24fb5d4d15']
@@ -486,19 +517,19 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
             # 32자 hex 문자열인지 확인
             if len(page_id) == 32 and all(c in "0123456789abcdef" for c in page_id.lower()):
                 return page_id
-        
+
         # 하이픈이 없는 경우: URL 경로의 마지막 부분에서 32자 hex 찾기
         # 예: https://www.notion.so/27e2cbf5657380319715fa24fb5d4d15
-        match = re.search(r'([0-9a-f]{32})', s.lower())
+        match = re.search(r"([0-9a-f]{32})", s.lower())
         if match:
             return match.group(1)
-    
+
     # 이미 페이지 ID인 경우 (하이픈 제거)
     # 예: 27e2cbf5-6573-8031-9715-fa24fb5d4d15 -> 27e2cbf5657380319715fa24fb5d4d15
     cleaned = s.replace("-", "")
     if len(cleaned) == 32 and all(c in "0123456789abcdef" for c in cleaned.lower()):
         return cleaned
-    
+
     # 그 외의 경우 원본 반환 (에러는 호출하는 쪽에서 처리)
     return s
 
@@ -508,14 +539,16 @@ def send_to_notion(
     token: str,
     page_id: str,
     feed_title: str,
-    items: List[feedparser.FeedParserDict],
+    items: list[Entry],
     dry_run: bool = False,
 ) -> None:
     """
     Notion 페이지에 새 글 목록을 블록으로 추가합니다.
     """
     if Client is None:
-        raise RuntimeError("notion-client 라이브러리가 설치되지 않았습니다. pip install notion-client")
+        raise RuntimeError(
+            "notion-client 라이브러리가 설치되지 않았습니다. pip install notion-client"
+        )
 
     if dry_run:
         print(f"[DRY-RUN] Notion 전송: {len(items)}개 글")
@@ -524,48 +557,47 @@ def send_to_notion(
     normalized_page_id = _normalize_notion_page_id(page_id)
     if not normalized_page_id:
         raise ValueError(f"유효하지 않은 Notion 페이지 ID: {page_id}")
-    
+
     # 정규화된 페이지 ID가 32자 hex가 아니면 에러
-    if len(normalized_page_id) != 32 or not all(c in "0123456789abcdef" for c in normalized_page_id.lower()):
-        raise ValueError(f"정규화된 페이지 ID가 유효하지 않습니다: {normalized_page_id} (원본: {page_id})")
-    
+    if len(normalized_page_id) != 32 or not all(
+        c in "0123456789abcdef" for c in normalized_page_id.lower()
+    ):
+        raise ValueError(
+            f"정규화된 페이지 ID가 유효하지 않습니다: {normalized_page_id} (원본: {page_id})"
+        )
+
     LOG.debug("페이지 ID 정규화: %s -> %s", page_id[:50], normalized_page_id)
     client = Client(auth=token)
 
     # 각 글을 Notion 블록으로 추가
-    blocks: List[Dict[str, Any]] = []
-    
+    blocks: list[dict[str, Any]] = []
+
     # 헤더 블록
     header_text = f"📰 {feed_title} 새 글 {len(items)}개"
-    
-    blocks.append({
-        "object": "block",
-        "type": "heading_2",
-        "heading_2": {
-            "rich_text": [{"type": "text", "text": {"content": header_text}}]
+
+    blocks.append(
+        {
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {"rich_text": [{"type": "text", "text": {"content": header_text}}]},
         }
-    })
+    )
 
     # 구분선 추가
-    blocks.append({
-        "object": "block",
-        "type": "divider",
-        "divider": {}
-    })
+    blocks.append({"object": "block", "type": "divider", "divider": {}})
 
     # 각 글을 callout 블록으로 추가 (더 예쁘게 표시)
     for idx, entry in enumerate(items):
         title = entry_title(entry) or "(제목 없음)"
         link = entry_link(entry)
         pub = entry_pub(entry)
-        
+
         # 날짜 포맷팅 (간단하게)
         date_str = ""
         if pub:
             try:
                 # feedparser의 published_parsed를 사용하거나 문자열 파싱
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    from time import struct_time
                     dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
                 else:
@@ -573,61 +605,62 @@ def send_to_notion(
                     date_str = pub[:16] if len(pub) >= 16 else pub
             except Exception:
                 date_str = pub[:16] if len(pub) >= 16 else pub
-        
+
         # Callout 블록의 rich_text 구성
-        rich_text_parts: List[Dict[str, Any]] = []
-        
+        rich_text_parts: list[dict[str, Any]] = []
+
         # 제목 (bold)
-        rich_text_parts.append({
-            "type": "text",
-            "text": {"content": title},
-            "annotations": {"bold": True}
-        })
-        
+        rich_text_parts.append(
+            {
+                "type": "text",
+                "text": {"content": title},
+                "annotations": {"bold": True},
+            }
+        )
+
         # 날짜가 있으면 추가
         if date_str:
-            rich_text_parts.append({
-                "type": "text",
-                "text": {"content": f"\n📅 {date_str}"},
-                "annotations": {"bold": False}
-            })
-        
+            rich_text_parts.append(
+                {
+                    "type": "text",
+                    "text": {"content": f"\n📅 {date_str}"},
+                    "annotations": {"bold": False},
+                }
+            )
+
         # 링크가 있으면 별도 줄로 추가
         if link:
-            rich_text_parts.append({
-                "type": "text",
-                "text": {"content": "\n🔗 "},
-                "annotations": {"bold": False}
-            })
-            rich_text_parts.append({
-                "type": "text",
-                "text": {
-                    "content": "원문 보기",
-                    "link": {"url": link}
-                },
-                "annotations": {"bold": False}
-            })
-        
+            rich_text_parts.append(
+                {
+                    "type": "text",
+                    "text": {"content": "\n🔗 "},
+                    "annotations": {"bold": False},
+                }
+            )
+            rich_text_parts.append(
+                {
+                    "type": "text",
+                    "text": {"content": "원문 보기", "link": {"url": link}},
+                    "annotations": {"bold": False},
+                }
+            )
+
         # Callout 블록 생성 (색상: blue)
-        blocks.append({
-            "object": "block",
-            "type": "callout",
-            "callout": {
-                "rich_text": rich_text_parts,
-                "icon": {
-                    "emoji": "📰"
+        blocks.append(
+            {
+                "object": "block",
+                "type": "callout",
+                "callout": {
+                    "rich_text": rich_text_parts,
+                    "icon": {"emoji": "📰"},
+                    "color": "blue",
                 },
-                "color": "blue"
             }
-        })
-        
+        )
+
         # 마지막 글이 아니면 구분선 추가 (선택적)
         if idx < len(items) - 1:
-            blocks.append({
-                "object": "block",
-                "type": "divider",
-                "divider": {}
-            })
+            blocks.append({"object": "block", "type": "divider", "divider": {}})
 
     # Notion API로 블록 추가 (한 번에 최대 100개까지 가능)
     try:
@@ -638,164 +671,162 @@ def send_to_notion(
         error_msg = str(e)
         LOG.error("Notion API 실패: %s", error_msg, exc_info=True)
         # 더 자세한 에러 정보 출력
-        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+        if hasattr(e, "response") and hasattr(e.response, "text"):
             LOG.error("Notion API 응답: %s", e.response.text[:500])
         raise RuntimeError(f"Notion API 실패: {error_msg}") from e
 
 
+def _dispatch_items(
+    cfg: Config,
+    feed_title: str,
+    items: list[Entry],
+    *,
+    feed_url: str,
+    site_url: str,
+) -> None:
+    """
+    항목들을 max_items_per_message 단위로 나눠 Slack으로 보내고,
+    이어서 Notion으로도(설정된 경우) 베스트에포트로 전송합니다.
+
+    Notion 전송 실패는 Slack 경로를 실패시키지 않습니다(경고만 남김).
+    Slack 전송이 실패하면 예외가 그대로 전파됩니다.
+    """
+    chunks = list(_chunked(items, cfg.max_items_per_message))
+    for idx, chunk in enumerate(chunks, start=1):
+        payload = format_slack_payload(
+            feed_title,
+            chunk,
+            feed_url=feed_url,
+            site_url=site_url,
+            index=idx,
+            total=len(chunks),
+        )
+        send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
+
+        # Notion 전송
+        if cfg.notion_token and cfg.notion_page_id:
+            LOG.info(
+                "Notion 전송 시도: token=%s..., page_id=%s",
+                cfg.notion_token[:10] if cfg.notion_token else "None",
+                cfg.notion_page_id[:20] if cfg.notion_page_id else "None",
+            )
+            try:
+                send_to_notion(
+                    token=str(cfg.notion_token),
+                    page_id=str(cfg.notion_page_id),
+                    feed_title=feed_title,
+                    items=chunk,
+                    dry_run=cfg.dry_run,
+                )
+            except Exception as e:
+                LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
+        else:
+            if not cfg.notion_token:
+                LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
+            if not cfg.notion_page_id:
+                LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
+
+
+def _process_feed(
+    cfg: Config,
+    feed_url: str,
+    feeds: dict[str, Any],
+    sent_ids: set,
+    sent_articles: dict[str, str],
+) -> int:
+    """
+    한 피드를 처리하고 이 피드의 종료 코드 기여분을 반환합니다.
+    0 성공, 2 가져오기 실패, 3 Slack 전송 실패.
+    """
+    LOG.info("피드 확인: %s", feed_url)
+    try:
+        parsed = fetch_feed(feed_url, verify_ssl=cfg.verify_ssl)
+    except Exception as e:
+        LOG.exception("피드 가져오기 실패: %s (%s)", feed_url, e)
+        return 2
+
+    feed_title = (parsed.feed.get("title") or feed_url).strip()
+    site_url = (parsed.feed.get("link") or "").strip()
+    entries = list(parsed.entries or [])
+
+    feed_state = feeds.get(feed_url) or {}
+    last_seen_id = feed_state.get("last_id")
+
+    # 첫 실행: 기준점만 찍거나, 옵션으로 최신 N개를 보냅니다.
+    if last_seen_id is None:
+        initial_items: list[Entry] = []
+        if entries and cfg.initial_notify_count > 0:
+            initial_items = [
+                e
+                for e in reversed(entries[: cfg.initial_notify_count])
+                if not _entry_already_sent(e, sent_ids, sent_articles)
+            ]
+            _dispatch_items(cfg, feed_title, initial_items, feed_url=feed_url, site_url=site_url)
+
+        _mark_entries_sent(initial_items, sent_ids, sent_articles)
+        newest_id = entry_uid(entries[0]) if entries else None
+        feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        LOG.info("첫 실행 기준점 저장: %s", newest_id)
+        return 0
+
+    new_entries, newest_id, found = compute_new_entries(entries, last_seen_id)
+    # 다른 피드 또는 이전 실행에서 이미 보낸 글 제거 (uid+link 이중 검사)
+    new_entries = [e for e in new_entries if not _entry_already_sent(e, sent_ids, sent_articles)]
+
+    if not found:
+        LOG.warning(
+            "상태 불일치: 마지막 ID가 피드에 없습니다. last_id=%s, feed=%s",
+            last_seen_id,
+            feed_url,
+        )
+        items: list[Entry] = []
+        if cfg.on_state_miss == "send" and entries:
+            # 피드에 보이는 항목을 모두 새 글로 간주(다른 피드에서 보낸 건 제외)
+            items = [
+                e for e in reversed(entries) if not _entry_already_sent(e, sent_ids, sent_articles)
+            ]
+            _dispatch_items(cfg, feed_title, items, feed_url=feed_url, site_url=site_url)
+
+        _mark_entries_sent(items, sent_ids, sent_articles)
+        # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
+        feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        return 0
+
+    if not new_entries:
+        LOG.info("새 글 없음: %s", feed_title)
+        # sent_uids 필터링으로 비워진 경우에도 상태를 갱신해야
+        # 다음 실행에서 같은 글을 다시 보내지 않습니다.
+        if newest_id:
+            feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        return 0
+
+    # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
+    try:
+        _dispatch_items(cfg, feed_title, new_entries, feed_url=feed_url, site_url=site_url)
+    except Exception as e:
+        LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
+        return 3
+
+    _mark_entries_sent(new_entries, sent_ids, sent_articles)
+    feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+    LOG.info("상태 업데이트: %s -> %s", last_seen_id, newest_id)
+    return 0
+
+
 def run_once(cfg: Config) -> int:
     state = load_state(cfg.state_file)
-    feeds: Dict[str, Any] = state.setdefault("feeds", {})
+    feeds: dict[str, Any] = state.setdefault("feeds", {})
 
     # 영구 전송 이력: 이전 실행에서 보낸 글도 중복 방지 (uid+link 모두 기록)
-    sent_articles: Dict[str, str] = _prune_sent_articles(
-        state.get("sent_articles", {})
-    )
+    sent_articles: dict[str, str] = _prune_sent_articles(state.get("sent_articles", {}))
 
     overall_exit = 0
     sent_ids: set = set()  # 피드 간 중복 알림 방지 (uid + link)
 
     for feed_url in cfg.feed_urls:
-        LOG.info("피드 확인: %s", feed_url)
-        try:
-            parsed = fetch_feed(feed_url, verify_ssl=cfg.verify_ssl)
-        except Exception as e:
-            overall_exit = 2
-            LOG.exception("피드 가져오기 실패: %s (%s)", feed_url, e)
-            continue
-
-        feed_title = (parsed.feed.get("title") or feed_url).strip()
-        site_url = (parsed.feed.get("link") or "").strip()
-        entries = list(parsed.entries or [])
-
-        feed_state = feeds.get(feed_url) or {}
-        last_seen_id = feed_state.get("last_id")
-
-        # 첫 실행: 기준점만 찍거나, 옵션으로 최신 N개를 보냅니다.
-        if last_seen_id is None:
-            initial_items: List[feedparser.FeedParserDict] = []
-            if entries and cfg.initial_notify_count > 0:
-                initial_items = [e for e in reversed(entries[: cfg.initial_notify_count]) if not _entry_already_sent(e, sent_ids, sent_articles)]
-                chunks = list(_chunked(initial_items, cfg.max_items_per_message))
-                for idx, chunk in enumerate(chunks, start=1):
-                    payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
-                    send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
-
-                    # Notion 전송
-                    if cfg.notion_token and cfg.notion_page_id:
-                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s",
-                                cfg.notion_token[:10] if cfg.notion_token else "None",
-                                cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
-                        try:
-                            send_to_notion(
-                                token=str(cfg.notion_token),
-                                page_id=str(cfg.notion_page_id),
-                                feed_title=feed_title,
-                                items=chunk,
-                                dry_run=cfg.dry_run,
-                            )
-                        except Exception as e:
-                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
-                    else:
-                        if not cfg.notion_token:
-                            LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
-                        if not cfg.notion_page_id:
-                            LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
-
-            _mark_entries_sent(initial_items, sent_ids, sent_articles)
-            newest_id = entry_uid(entries[0]) if entries else None
-            feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
-            LOG.info("첫 실행 기준점 저장: %s", newest_id)
-            continue
-
-        new_entries, newest_id, found = compute_new_entries(entries, last_seen_id)
-        # 다른 피드 또는 이전 실행에서 이미 보낸 글 제거 (uid+link 이중 검사)
-        new_entries = [e for e in new_entries if not _entry_already_sent(e, sent_ids, sent_articles)]
-
-        if not found:
-            LOG.warning(
-                "상태 불일치: 마지막 ID가 피드에 없습니다. last_id=%s, feed=%s",
-                last_seen_id,
-                feed_url,
-            )
-            items: List[feedparser.FeedParserDict] = []
-            if cfg.on_state_miss == "send" and entries:
-                # 피드에 보이는 항목을 모두 새 글로 간주(다른 피드에서 보낸 건 제외)
-                items = [e for e in reversed(entries) if not _entry_already_sent(e, sent_ids, sent_articles)]
-                chunks = list(_chunked(items, cfg.max_items_per_message))
-                for idx, chunk in enumerate(chunks, start=1):
-                    payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
-                    send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
-
-                    # Notion 전송
-                    if cfg.notion_token and cfg.notion_page_id:
-                        LOG.info("Notion 전송 시도: token=%s..., page_id=%s",
-                                cfg.notion_token[:10] if cfg.notion_token else "None",
-                                cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
-                        try:
-                            send_to_notion(
-                                token=str(cfg.notion_token),
-                                page_id=str(cfg.notion_page_id),
-                                feed_title=feed_title,
-                                items=chunk,
-                                dry_run=cfg.dry_run,
-                            )
-                        except Exception as e:
-                            LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
-                    else:
-                        if not cfg.notion_token:
-                            LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
-                        if not cfg.notion_page_id:
-                            LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
-
-            _mark_entries_sent(items, sent_ids, sent_articles)
-            # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
-            feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
-            continue
-
-        if not new_entries:
-            LOG.info("새 글 없음: %s", feed_title)
-            # sent_uids 필터링으로 비워진 경우에도 상태를 갱신해야
-            # 다음 실행에서 같은 글을 다시 보내지 않습니다.
-            if newest_id:
-                feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
-            continue
-
-        # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
-        chunks = list(_chunked(new_entries, cfg.max_items_per_message))
-        try:
-            for idx, chunk in enumerate(chunks, start=1):
-                payload = format_slack_payload(feed_title, chunk, feed_url=feed_url, site_url=site_url, index=idx, total=len(chunks))
-                send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
-                
-                # Notion 전송
-                if cfg.notion_token and cfg.notion_page_id:
-                    LOG.info("Notion 전송 시도: token=%s..., page_id=%s", 
-                            cfg.notion_token[:10] if cfg.notion_token else "None",
-                            cfg.notion_page_id[:20] if cfg.notion_page_id else "None")
-                    try:
-                        send_to_notion(
-                            token=str(cfg.notion_token),
-                            page_id=str(cfg.notion_page_id),
-                            feed_title=feed_title,
-                            items=chunk,
-                            dry_run=cfg.dry_run,
-                        )
-                    except Exception as e:
-                        LOG.warning("Notion 전송 실패 (Slack은 정상 전송됨): %s", e, exc_info=True)
-                else:
-                    if not cfg.notion_token:
-                        LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
-                    if not cfg.notion_page_id:
-                        LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
-        except Exception as e:
-            overall_exit = 3
-            LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
-            continue
-
-        _mark_entries_sent(new_entries, sent_ids, sent_articles)
-        feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
-        LOG.info("상태 업데이트: %s -> %s", last_seen_id, newest_id)
+        exit_code = _process_feed(cfg, feed_url, feeds, sent_ids, sent_articles)
+        if exit_code:
+            overall_exit = exit_code
 
     state["sent_articles"] = sent_articles
     save_state(cfg.state_file, state)
@@ -817,5 +848,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
