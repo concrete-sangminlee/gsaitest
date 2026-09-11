@@ -355,7 +355,8 @@ def _format_date_kr(pub_str: str, entry: Entry) -> str:
     try:
         parsed_time = entry.get("published_parsed") or entry.get("updated_parsed")
         if parsed_time:
-            dt = datetime(*parsed_time[:6], tzinfo=timezone.utc)
+            y, mo, d, h, mi, s = parsed_time[:6]
+            dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
             kst = timezone(timedelta(hours=9))
             dt_kst = dt.astimezone(kst)
             return dt_kst.strftime("%Y. %m. %d")
@@ -598,7 +599,8 @@ def send_to_notion(
             try:
                 # feedparser의 published_parsed를 사용하거나 문자열 파싱
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                    y, mo, d, h, mi, s = entry.published_parsed[:6]
+                    dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
                 else:
                     # 문자열에서 간단히 추출
