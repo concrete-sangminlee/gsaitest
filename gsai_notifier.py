@@ -685,13 +685,15 @@ def _dispatch_items(
     *,
     feed_url: str,
     site_url: str,
-) -> None:
+) -> int:
     """
     항목들을 max_items_per_message 단위로 나눠 Slack으로 보내고,
     이어서 Notion으로도(설정된 경우) 베스트에포트로 전송합니다.
 
     Notion 전송 실패는 Slack 경로를 실패시키지 않습니다(경고만 남김).
     Slack 전송이 실패하면 예외가 그대로 전파됩니다.
+
+    반환값: Slack으로 전송한 항목 수(요약 로그용).
     """
     chunks = list(_chunked(items, cfg.max_items_per_message))
     for idx, chunk in enumerate(chunks, start=1):
@@ -728,6 +730,19 @@ def _dispatch_items(
             if not cfg.notion_page_id:
                 LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
 
+    # Slack 전송이 성공적으로 끝난 항목 수를 반환합니다.
+    return len(items)
+
+
+@dataclass
+class _RunSummary:
+    """한 번의 run_once 실행 동안의 집계 값을 담는 가변 카운터입니다."""
+
+    feeds_checked: int = 0
+    items_sent: int = 0
+    fetch_failures: int = 0
+    slack_failures: int = 0
+
 
 def _process_feed(
     cfg: Config,
@@ -735,10 +750,13 @@ def _process_feed(
     feeds: dict[str, Any],
     sent_ids: set,
     sent_articles: dict[str, str],
+    summary: _RunSummary,
 ) -> int:
     """
     한 피드를 처리하고 이 피드의 종료 코드 기여분을 반환합니다.
     0 성공, 2 가져오기 실패, 3 Slack 전송 실패.
+
+    전송한 항목 수는 summary.items_sent 에 누적됩니다.
     """
     LOG.info("피드 확인: %s", feed_url)
     try:
@@ -763,7 +781,13 @@ def _process_feed(
                 for e in reversed(entries[: cfg.initial_notify_count])
                 if not _entry_already_sent(e, sent_ids, sent_articles)
             ]
-            _dispatch_items(cfg, feed_title, initial_items, feed_url=feed_url, site_url=site_url)
+            try:
+                summary.items_sent += _dispatch_items(
+                    cfg, feed_title, initial_items, feed_url=feed_url, site_url=site_url
+                )
+            except Exception as e:
+                LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
+                return 3
 
         _mark_entries_sent(initial_items, sent_ids, sent_articles)
         newest_id = entry_uid(entries[0]) if entries else None
@@ -787,7 +811,13 @@ def _process_feed(
             items = [
                 e for e in reversed(entries) if not _entry_already_sent(e, sent_ids, sent_articles)
             ]
-            _dispatch_items(cfg, feed_title, items, feed_url=feed_url, site_url=site_url)
+            try:
+                summary.items_sent += _dispatch_items(
+                    cfg, feed_title, items, feed_url=feed_url, site_url=site_url
+                )
+            except Exception as e:
+                LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
+                return 3
 
         _mark_entries_sent(items, sent_ids, sent_articles)
         # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
@@ -804,7 +834,9 @@ def _process_feed(
 
     # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
     try:
-        _dispatch_items(cfg, feed_title, new_entries, feed_url=feed_url, site_url=site_url)
+        summary.items_sent += _dispatch_items(
+            cfg, feed_title, new_entries, feed_url=feed_url, site_url=site_url
+        )
     except Exception as e:
         LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
         return 3
@@ -824,14 +856,29 @@ def run_once(cfg: Config) -> int:
 
     overall_exit = 0
     sent_ids: set = set()  # 피드 간 중복 알림 방지 (uid + link)
+    summary = _RunSummary()
 
     for feed_url in cfg.feed_urls:
-        exit_code = _process_feed(cfg, feed_url, feeds, sent_ids, sent_articles)
+        summary.feeds_checked += 1
+        exit_code = _process_feed(cfg, feed_url, feeds, sent_ids, sent_articles, summary)
+        if exit_code == 2:
+            summary.fetch_failures += 1
+        elif exit_code == 3:
+            summary.slack_failures += 1
         if exit_code:
             overall_exit = exit_code
 
     state["sent_articles"] = sent_articles
     save_state(cfg.state_file, state)
+
+    LOG.info(
+        "run summary: feeds=%d items_sent=%d fetch_failures=%d slack_failures=%d exit=%d",
+        summary.feeds_checked,
+        summary.items_sent,
+        summary.fetch_failures,
+        summary.slack_failures,
+        overall_exit,
+    )
     return overall_exit
 
 

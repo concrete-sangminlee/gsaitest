@@ -311,3 +311,97 @@ def test_notion_failure_does_not_fail_run_or_block_advance(tmp_path, monkeypatch
     # 상태 전진도 막지 않습니다.
     state = _read_state(state_file)
     assert state["feeds"]["https://feed.a/"]["last_id"] == "new1"
+
+
+# --- Slack 실패 시 모든 경로에서 exit 3 + 상태 미전진 ---
+
+
+def test_slack_failure_on_first_run_yields_exit_3(tmp_path, monkeypatch, recorder):
+    state_file = tmp_path / "state.json"
+    # last_id 가 없는(첫 실행) 상태 + initial_notify_count>0 로 dispatch 를 태웁니다.
+    cfg = _make_config(state_file, feed_urls=["https://feed.a/"], initial_notify_count=2)
+    parsed = FakeParsed([_entry("n1"), _entry("n2"), _entry("n3")])
+    _install_feeds(monkeypatch, {"https://feed.a/": parsed})
+
+    def boom_slack(*_a, **_k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(gn, "send_to_slack", boom_slack)
+
+    assert gn.run_once(cfg) == 3
+    # Slack 실패에도 state.json 은 저장됩니다.
+    assert state_file.exists()
+    state = _read_state(state_file)
+    # 첫 실행 기준점(last_id)이 전진하지 않아야 합니다(피드가 기록되지 않음).
+    assert "https://feed.a/" not in state["feeds"]
+
+
+def test_slack_failure_on_state_miss_send_yields_exit_3(tmp_path, monkeypatch, recorder):
+    state_file = tmp_path / "state.json"
+    # last_id 가 피드에 없는(상태 불일치) 상황을 만듭니다.
+    state_file.write_text(
+        json.dumps(
+            {"version": 1, "feeds": {"https://feed.a/": {"last_id": "missing", "updated_at": "x"}}}
+        ),
+        encoding="utf-8",
+    )
+    cfg = _make_config(state_file, feed_urls=["https://feed.a/"], on_state_miss="send")
+    parsed = FakeParsed([_entry("a2"), _entry("a1")])
+    _install_feeds(monkeypatch, {"https://feed.a/": parsed})
+
+    def boom_slack(*_a, **_k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(gn, "send_to_slack", boom_slack)
+
+    assert gn.run_once(cfg) == 3
+    assert state_file.exists()
+    state = _read_state(state_file)
+    # 상태 불일치 재설정 전에 실패하므로 last_id 는 전진하지 않고 그대로 유지됩니다.
+    assert state["feeds"]["https://feed.a/"]["last_id"] == "missing"
+
+
+# --- 실행 요약 로그 (#6) ---
+
+
+def test_run_summary_log_counts_items_sent(tmp_path, monkeypatch, recorder, caplog):
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {"version": 1, "feeds": {"https://feed.a/": {"last_id": "old", "updated_at": "x"}}}
+        ),
+        encoding="utf-8",
+    )
+    cfg = _make_config(state_file, feed_urls=["https://feed.a/"])
+    parsed = FakeParsed([_entry("new2"), _entry("new1"), _entry("old")])
+    _install_feeds(monkeypatch, {"https://feed.a/": parsed})
+
+    with caplog.at_level("INFO", logger="gsai_notifier"):
+        assert gn.run_once(cfg) == 0
+
+    summaries = [r for r in caplog.records if r.getMessage().startswith("run summary:")]
+    assert len(summaries) == 1
+    msg = summaries[0].getMessage()
+    assert "feeds=1" in msg
+    assert "items_sent=2" in msg
+    assert "fetch_failures=0" in msg
+    assert "slack_failures=0" in msg
+    assert "exit=0" in msg
+
+
+def test_run_summary_log_counts_fetch_failure(tmp_path, monkeypatch, recorder, caplog):
+    state_file = tmp_path / "state.json"
+    cfg = _make_config(state_file, feed_urls=["https://feed.a/"])
+    _install_feeds(monkeypatch, {"https://feed.a/": RuntimeError("boom")})
+
+    with caplog.at_level("INFO", logger="gsai_notifier"):
+        assert gn.run_once(cfg) == 2
+
+    summaries = [r for r in caplog.records if r.getMessage().startswith("run summary:")]
+    assert len(summaries) == 1
+    msg = summaries[0].getMessage()
+    assert "feeds=1" in msg
+    assert "items_sent=0" in msg
+    assert "fetch_failures=1" in msg
+    assert "slack_failures=0" in msg
+    assert "exit=2" in msg
