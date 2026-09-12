@@ -372,7 +372,7 @@ def _prune_sent_articles(sent_articles: dict[str, str]) -> dict[str, str]:
 
 def _entry_already_sent(
     entry: Entry,
-    sent_ids: set,
+    sent_ids: set[str],
     sent_articles: dict[str, str],
 ) -> bool:
     """한 번이라도 보낸 글인지 uid와 link 모두로 확인합니다."""
@@ -387,7 +387,7 @@ def _entry_already_sent(
 
 def _mark_entries_sent(
     entries: Iterable[Entry],
-    sent_ids: set,
+    sent_ids: set[str],
     sent_articles: dict[str, str],
 ) -> None:
     """보낸 글의 uid와 link를 모두 기록합니다."""
@@ -829,7 +829,7 @@ def _process_feed(
     cfg: Config,
     feed_url: str,
     feeds: dict[str, Any],
-    sent_ids: set,
+    sent_ids: set[str],
     sent_articles: dict[str, str],
     summary: _RunSummary,
 ) -> int:
@@ -936,7 +936,7 @@ def run_once(cfg: Config) -> int:
     sent_articles: dict[str, str] = _prune_sent_articles(state.get("sent_articles", {}))
 
     overall_exit = 0
-    sent_ids: set = set()  # 피드 간 중복 알림 방지 (uid + link)
+    sent_ids: set[str] = set()  # 피드 간 중복 알림 방지 (uid + link)
     summary = _RunSummary()
 
     for feed_url in cfg.feed_urls:
