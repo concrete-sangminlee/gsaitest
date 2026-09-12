@@ -581,38 +581,30 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
     if not s:
         return ""
 
-    # URL에서 페이지 ID 추출
-    if "notion.so" in s:
-        # URL에서 쿼리 파라미터와 프래그먼트 제거
-        if "?" in s:
-            s = s.split("?")[0]
-        if "#" in s:
-            s = s.split("#")[0]
+    # 쿼리 파라미터(?)와 프래그먼트(#)를 제거한 뒤 정규식으로 페이지 ID를 추출합니다.
+    working = s.split("?", 1)[0].split("#", 1)[0].lower()
 
-        # 마지막 하이픈 이후 부분이 페이지 ID
-        # 예: https://www.notion.so/Notice-27e2cbf5657380319715fa24fb5d4d15
-        # -> ['https://www.notion.so/Notice', '27e2cbf5657380319715fa24fb5d4d15']
-        parts = s.split("-")
-        if len(parts) >= 2:
-            # 마지막 부분이 페이지 ID
-            page_id = parts[-1]
-            # 32자 hex 문자열인지 확인
-            if len(page_id) == 32 and all(c in "0123456789abcdef" for c in page_id.lower()):
-                return page_id
+    # 1) 하이픈이 포함된 8-4-4-4-12 UUID 형태를 우선 매칭합니다.
+    #    슬러그 자체에 하이픈이 여러 개 있어도(예: My-Cool-Page-Title-<32hex>) 안전합니다.
+    uuid_match = re.search(
+        r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+        working,
+    )
+    if uuid_match:
+        return uuid_match.group(1).replace("-", "")
 
-        # 하이픈이 없는 경우: URL 경로의 마지막 부분에서 32자 hex 찾기
-        # 예: https://www.notion.so/27e2cbf5657380319715fa24fb5d4d15
-        match = re.search(r"([0-9a-f]{32})", s.lower())
-        if match:
-            return match.group(1)
+    # 2) 하이픈 없는 32자 hex 런을 매칭합니다.
+    #    예: https://www.notion.so/My-Cool-Page-Title-<32hex>
+    hex_match = re.search(r"([0-9a-f]{32})", working)
+    if hex_match:
+        return hex_match.group(1)
 
-    # 이미 페이지 ID인 경우 (하이픈 제거)
-    # 예: 27e2cbf5-6573-8031-9715-fa24fb5d4d15 -> 27e2cbf5657380319715fa24fb5d4d15
-    cleaned = s.replace("-", "")
-    if len(cleaned) == 32 and all(c in "0123456789abcdef" for c in cleaned.lower()):
+    # 3) 입력 전체(하이픈 제거)가 정확히 32자 hex인 경우 그대로 사용합니다.
+    cleaned = working.replace("-", "")
+    if len(cleaned) == 32 and all(c in "0123456789abcdef" for c in cleaned):
         return cleaned
 
-    # 그 외의 경우 원본 반환 (에러는 호출하는 쪽에서 처리)
+    # 그 외의 경우 원본(공백 제거본)을 그대로 반환합니다. (에러는 호출하는 쪽에서 처리)
     return s
 
 
@@ -745,10 +737,18 @@ def send_to_notion(
         if idx < len(items) - 1:
             blocks.append({"object": "block", "type": "divider", "divider": {}})
 
-    # Notion API로 블록 추가 (한 번에 최대 100개까지 가능)
+    # Notion API로 블록 추가 (한 번의 append 호출당 최대 100개 블록까지 가능)
+    # 100개를 초과하면 순서를 유지한 채 여러 번 나눠서 append합니다.
+    chunks = list(_chunked(blocks, 100))
     try:
-        LOG.debug("Notion API 호출: page_id=%s, blocks=%d개", normalized_page_id, len(blocks))
-        client.blocks.children.append(block_id=normalized_page_id, children=blocks)
+        LOG.debug(
+            "Notion API 호출: page_id=%s, blocks=%d개, append 호출=%d회",
+            normalized_page_id,
+            len(blocks),
+            len(chunks),
+        )
+        for chunk in chunks:
+            client.blocks.children.append(block_id=normalized_page_id, children=chunk)
         LOG.info("Notion 전송 완료: %d개 글을 페이지에 추가했습니다.", len(items))
     except Exception as e:
         error_msg = str(e)

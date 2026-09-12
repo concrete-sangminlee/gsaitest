@@ -47,3 +47,25 @@ def test_empty_returns_empty():
 
 def test_strips_surrounding_whitespace():
     assert gn._normalize_notion_page_id(f"  {_HEX}  ") == _HEX
+
+
+def test_multi_hyphen_slug_url_normalizes_to_hex():
+    url = f"https://www.notion.so/My-Cool-Page-Title-{_HEX}"
+    assert gn._normalize_notion_page_id(url) == _HEX
+
+
+def test_hyphenated_uuid_in_notion_url_normalizes():
+    uuid = "27e2cbf5-6573-8031-9715-fa24fb5d4d15"
+    url = f"https://www.notion.so/My-Cool-Page-{uuid}"
+    assert gn._normalize_notion_page_id(url) == _HEX
+
+
+def test_uppercase_hex_normalizes_to_lowercase():
+    upper = _HEX.upper()
+    assert gn._normalize_notion_page_id(upper) == _HEX
+    url = f"https://www.notion.so/Notice-{upper}"
+    assert gn._normalize_notion_page_id(url) == _HEX
+
+
+def test_non_matching_still_returns_unchanged():
+    assert gn._normalize_notion_page_id("not-a-page-id") == "not-a-page-id"
