@@ -115,6 +115,43 @@ crontab -e
 - `VERIFY_SSL`: SSL 검증(기본 true)
 - `DRY_RUN`: true면 Slack 전송 대신 콘솔 출력
 
+## 개발/테스트(로컬)
+
+코드에 기여하거나 로직을 수정할 때는 개발용 도구를 설치해 린트/타입 체크/테스트를 돌려 보세요.
+
+### 개발용 의존성 설치
+
+런타임 의존성과 별도로, 개발 도구는 `requirements-dev.txt`에 정리되어 있습니다.
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### 린트 / 포매팅(ruff)
+
+```bash
+# 린트 검사
+ruff check .
+
+# 코드 포매팅
+ruff format .
+```
+
+### 타입 체크(mypy)
+
+```bash
+mypy gsai_notifier.py
+```
+
+### 단위 테스트(pytest)
+
+```bash
+pytest -q
+```
+
+단위 테스트는 **순수 로직(파싱/비교/포맷 등)** 만 검증하며, **네트워크 접속 없이** 오프라인으로 동작합니다.  
+따라서 실제 피드 조회나 Slack/Notion 전송 없이도 안전하게 실행할 수 있습니다.
+
 ## 자주 겪는 함정(“왜 알림이 안 오지?”)
 
 - Slack Webhook URL이 비었거나 잘못됨
