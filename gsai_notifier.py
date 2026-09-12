@@ -26,7 +26,8 @@ import logging
 import os
 import re
 import sys
-from collections.abc import Iterable, Mapping
+import time
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -109,6 +110,86 @@ def _chunked(items: list[Any], size: int) -> Iterable[list[Any]]:
         return
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+# 네트워크 재시도 설정. 일시적 오류(연결/타임아웃/HTTP 5xx)만 소수 횟수로 재시도합니다.
+# 환경변수로 조정 가능: HTTP_RETRIES(기본 3, 최초 시도 후 추가 재시도 횟수),
+# HTTP_BACKOFF(기본 0.5초, backoff * 2**attempt 로 지수 증가).
+_HTTP_RETRIES = max(0, _parse_int(os.getenv("HTTP_RETRIES"), 3))
+try:
+    _HTTP_BACKOFF = max(0.0, float(os.getenv("HTTP_BACKOFF", "0.5")))
+except (TypeError, ValueError):
+    _HTTP_BACKOFF = 0.5
+
+# time.sleep을 모듈 수준 이름으로 참조해 테스트에서 monkeypatch할 수 있게 합니다.
+_sleep = time.sleep
+
+
+class _TransientHTTPError(Exception):
+    """HTTP 5xx 응답처럼 재시도할 가치가 있는 일시적 오류를 표현합니다."""
+
+
+def _retryable_exceptions() -> tuple[type[BaseException], ...]:
+    """재시도 대상 예외 타입 튜플을 방어적으로 구성합니다.
+
+    requests/urllib3가 설치되지 않은 환경(테스트 샌드박스)에서도 동작하도록
+    requests.exceptions가 있으면 그 연결/타임아웃 계열을 포함하고, 없으면
+    표준 OSError로 폴백합니다. 내부에서 던지는 _TransientHTTPError는 항상 포함합니다.
+    """
+    types_list: list[type[BaseException]] = [_TransientHTTPError]
+    exc_module = getattr(requests, "exceptions", None) if requests is not None else None
+    if exc_module is not None:
+        for name in ("ConnectionError", "Timeout", "ChunkedEncodingError"):
+            exc_type = getattr(exc_module, name, None)
+            if isinstance(exc_type, type) and issubclass(exc_type, BaseException):
+                types_list.append(exc_type)
+    else:
+        types_list.append(OSError)
+    return tuple(types_list)
+
+
+def _is_server_error(resp: Any) -> bool:
+    """응답 상태 코드가 HTTP 5xx인지(재시도 대상인지) 판단합니다."""
+    status = getattr(resp, "status_code", None)
+    return isinstance(status, int) and 500 <= status <= 599
+
+
+def _request_with_retry(
+    func: Callable[..., Any],
+    *args: Any,
+    retries: int = _HTTP_RETRIES,
+    backoff: float = _HTTP_BACKOFF,
+    **kwargs: Any,
+) -> Any:
+    """func(requests.get/post)를 호출하고 일시적 오류만 지수 백오프로 재시도합니다.
+
+    - 연결/타임아웃 계열 예외와 HTTP 5xx 응답은 재시도합니다.
+    - 4xx 및 그 밖의 비일시적 오류/예외는 재시도하지 않고 즉시 전파합니다.
+    - 마지막 시도의 응답/예외는 그대로 반환·전파합니다.
+    """
+    retryable = _retryable_exceptions()
+    last_exc: BaseException | None = None
+    # 총 시도 횟수 = 최초 1회 + retries회 재시도
+    for attempt in range(retries + 1):
+        try:
+            resp = func(*args, **kwargs)
+        except retryable as e:
+            last_exc = e
+            if attempt >= retries:
+                raise
+        else:
+            # 5xx는 일시적 장애로 간주해 재시도, 그 외(2xx/3xx/4xx)는 그대로 반환.
+            if _is_server_error(resp) and attempt < retries:
+                last_exc = None
+                _sleep(backoff * (2**attempt))
+                continue
+            return resp
+        # 예외를 잡아 재시도하는 경로에서만 여기 도달합니다.
+        _sleep(backoff * (2**attempt))
+    # 이론상 도달하지 않지만, 안전하게 마지막 예외를 전파합니다.
+    if last_exc is not None:  # pragma: no cover
+        raise last_exc
+    raise RuntimeError("재시도 로직 오류")  # pragma: no cover
 
 
 @dataclass(frozen=True)
@@ -234,7 +315,7 @@ def fetch_feed(url: str, *, verify_ssl: bool) -> Any:
         "Accept": _ACCEPT_HEADER,
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
-    resp = requests.get(url, headers=headers, timeout=20, verify=verify_ssl)
+    resp = _request_with_retry(requests.get, url, headers=headers, timeout=20, verify=verify_ssl)
     resp.raise_for_status()
 
     # 방화벽 차단 페이지는 200으로 내려오므로 본문을 직접 확인합니다.
@@ -486,7 +567,7 @@ def send_to_slack(webhook_url: str, payload: dict[str, Any], *, dry_run: bool) -
             "requests 라이브러리가 설치되지 않았습니다. pip install -r requirements.txt"
         )
 
-    resp = requests.post(webhook_url, json=payload, timeout=20)
+    resp = _request_with_retry(requests.post, webhook_url, json=payload, timeout=20)
     resp.raise_for_status()
 
 
