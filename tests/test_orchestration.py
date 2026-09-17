@@ -389,6 +389,51 @@ def test_run_summary_log_counts_items_sent(tmp_path, monkeypatch, recorder, capl
     assert "exit=0" in msg
 
 
+def test_partial_multichunk_slack_failure_records_delivered_items(tmp_path, monkeypatch, caplog):
+    """여러 청크 중 K개 전송 성공 후 실패하면 items_sent==K, exit 3, 기준점 미전진."""
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {"version": 1, "feeds": {"https://feed.a/": {"last_id": "old", "updated_at": "x"}}}
+        ),
+        encoding="utf-8",
+    )
+    # max_items_per_message=1 이므로 새 글 N개 => N개 청크.
+    cfg = _make_config(state_file, feed_urls=["https://feed.a/"], max_items_per_message=1)
+    # 새 글 3개(new1..new3) + 기준점 old. 오래된 순으로 전송되므로 청크 순서는 new1, new2, new3.
+    parsed = FakeParsed([_entry("new3"), _entry("new2"), _entry("new1"), _entry("old")])
+    _install_feeds(monkeypatch, {"https://feed.a/": parsed})
+
+    # 앞 2개 청크(K=2)는 성공, 3번째 호출에서 실패시킵니다.
+    calls = {"n": 0}
+
+    def flaky_slack(webhook_url, payload, *, dry_run):
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise RuntimeError("slack down")
+
+    monkeypatch.setattr(gn, "send_to_slack", flaky_slack)
+
+    with caplog.at_level("INFO", logger="gsai_notifier"):
+        assert gn.run_once(cfg) == 3
+
+    # 전달에 성공한 청크 수(K=2)만큼만 집계되어야 합니다.
+    summaries = [r for r in caplog.records if r.getMessage().startswith("run summary:")]
+    assert len(summaries) == 1
+    msg = summaries[0].getMessage()
+    assert "items_sent=2" in msg
+    assert "slack_failures=1" in msg
+    assert "exit=3" in msg
+
+    # 3개 청크 중 3번째에서 실패했으므로 총 3회 호출.
+    assert calls["n"] == 3
+
+    # Slack 실패이므로 기준점(last_id)은 전진하지 않고 그대로 유지됩니다.
+    state = _read_state(state_file)
+    assert state["feeds"]["https://feed.a/"]["last_id"] == "old"
+    assert state_file.exists()
+
+
 def test_run_summary_log_counts_fetch_failure(tmp_path, monkeypatch, recorder, caplog):
     state_file = tmp_path / "state.json"
     cfg = _make_config(state_file, feed_urls=["https://feed.a/"])

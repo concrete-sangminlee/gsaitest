@@ -73,6 +73,17 @@ def fake_requests(monkeypatch):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def no_jitter(monkeypatch):
+    """지터를 0으로 고정해 지연 값이 지터 도입 이전과 동일하게 유지되도록 합니다.
+
+    _rand()가 0.0을 반환하면 _backoff_delay는 min(base, cap)와 정확히 같으므로
+    기존 sleep 시퀀스 단언([0.5, 1.0, ...])이 그대로 성립합니다. 지터 자체를
+    검증하는 테스트는 이 값을 자체적으로 다시 monkeypatch합니다.
+    """
+    monkeypatch.setattr(gn, "_rand", lambda: 0.0)
+
+
 # --- _request_with_retry 단위 테스트 ---
 
 
@@ -314,3 +325,73 @@ def test_retryable_exceptions_fallback_without_requests(monkeypatch):
     types_tuple = gn._retryable_exceptions()
     assert gn._TransientHTTPError in types_tuple
     assert OSError in types_tuple
+
+
+# --- 백오프 상한(cap) + 지터 ---
+
+
+def test_backoff_capped_at_max_backoff(fake_requests, no_sleep):
+    """max_backoff 상한을 지정하면 지연이 상한 이하로 클램프되어 무한 증가하지 않음."""
+    calls = {"n": 0}
+
+    def always_500(*_a, **_k):
+        calls["n"] += 1
+        return _FakeResponse(503, b"unavailable")
+
+    resp = gn._request_with_retry(always_500, retries=5, backoff=0.5, max_backoff=1.0)
+    assert resp.status_code == 503
+    # 최초 1회 + 5회 재시도 = 6회 호출, 5회 sleep.
+    assert calls["n"] == 6
+    # base = 0.5, 1.0, 2.0, 4.0, 8.0 -> min(base, 1.0)로 클램프 (jitter=0).
+    assert no_sleep == [0.5, 1.0, 1.0, 1.0, 1.0]
+    # 모든 지연은 상한 이하여야 합니다.
+    assert all(s <= 1.0 for s in no_sleep)
+
+
+def test_backoff_cap_applies_to_transient_exception_path(fake_requests, no_sleep):
+    """예외 재시도 경로에서도 상한 클램프가 적용됨."""
+    calls = {"n": 0}
+
+    def always_timeout(*_a, **_k):
+        calls["n"] += 1
+        raise fake_requests.exceptions.Timeout("slow")
+
+    with pytest.raises(_FakeTimeout):
+        gn._request_with_retry(always_timeout, retries=4, backoff=0.5, max_backoff=1.0)
+    assert calls["n"] == 5  # 1 + 4 재시도
+    # base = 0.5, 1.0, 2.0, 4.0 -> [0.5, 1.0, 1.0, 1.0]
+    assert no_sleep == [0.5, 1.0, 1.0, 1.0]
+    assert all(s <= 1.0 for s in no_sleep)
+
+
+def test_jitter_scales_delay_deterministically(fake_requests, no_sleep, monkeypatch):
+    """gn._rand를 고정값으로 monkeypatch하면 지터가 결정적으로 지연을 스케일함."""
+    # _rand()가 1.0이면 지연 = base * (1 + 0.10 * 1.0) = base * 1.1 (상한 클램프 적용).
+    monkeypatch.setattr(gn, "_rand", lambda: 1.0)
+    calls = {"n": 0}
+
+    def always_500(*_a, **_k):
+        calls["n"] += 1
+        return _FakeResponse(500, b"err")
+
+    resp = gn._request_with_retry(always_500, retries=3, backoff=0.5, max_backoff=100.0)
+    assert resp.status_code == 500
+    # base = 0.5, 1.0, 2.0 -> *1.1 => 0.55, 1.1, 2.2 (상한 100이라 클램프 없음).
+    assert no_sleep == pytest.approx([0.55, 1.1, 2.2])
+
+
+def test_jitter_clamped_to_cap(fake_requests, no_sleep, monkeypatch):
+    """지터를 얹은 최종 지연도 상한을 넘지 않도록 클램프됨."""
+    monkeypatch.setattr(gn, "_rand", lambda: 1.0)
+    calls = {"n": 0}
+
+    def always_500(*_a, **_k):
+        calls["n"] += 1
+        return _FakeResponse(500, b"err")
+
+    resp = gn._request_with_retry(always_500, retries=3, backoff=0.5, max_backoff=1.0)
+    assert resp.status_code == 500
+    # base 클램프 후에도 지터가 상한을 넘길 수 있으므로 최종적으로 1.0으로 재클램프.
+    # base=min(0.5,1)=0.5 ->*1.1=0.55; min(1.0,1)=1.0 ->*1.1=1.1 -> clamp 1.0; 동일.
+    assert no_sleep == pytest.approx([0.55, 1.0, 1.0])
+    assert all(s <= 1.0 for s in no_sleep)

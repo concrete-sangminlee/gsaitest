@@ -100,3 +100,37 @@ def test_exactly_100_blocks_single_append(monkeypatch):
     calls = client.blocks.children.calls
     assert len(calls) == 1
     assert len(calls[0]) == 99
+
+
+def test_dict_entry_published_parsed_formats_date(monkeypatch):
+    """평범한 dict 항목의 published_parsed 튜플로부터 날짜가 포맷팅되어 callout에 포함됨.
+
+    send_to_notion이 attribute 접근이 아니라 .get() 기반으로 파싱하는지 확인합니다.
+    """
+    monkeypatch.setattr(gn, "Client", _FakeClient)
+
+    # published_parsed 는 feedparser 의 time.struct_time 유사 9-튜플입니다.
+    # 앞 6개(연,월,일,시,분,초)만 사용되며 UTC 로 해석됩니다.
+    entry: dict[str, Any] = {
+        "title": "테스트 글",
+        "link": "http://x/1",
+        "published": "Mon, 01 Jan 2024 12:34:56 +0000",
+        "published_parsed": (2024, 1, 1, 12, 34, 56, 0, 1, 0),
+    }
+    gn.send_to_notion(
+        token="fake-token",
+        page_id=_PAGE_ID,
+        feed_title="테스트 피드",
+        items=[entry],
+        dry_run=False,
+    )
+    client = _FakeClient.last_instance
+    assert client is not None
+    concatenated = [b for chunk in client.blocks.children.calls for b in chunk]
+
+    callouts = [b for b in concatenated if b["type"] == "callout"]
+    assert len(callouts) == 1
+    texts = [rt["text"]["content"] for rt in callouts[0]["callout"]["rich_text"]]
+    joined = "".join(texts)
+    # published_parsed 튜플에서 파생된 '%Y-%m-%d %H:%M' 포맷이 포함되어야 합니다.
+    assert "2024-01-01 12:34" in joined

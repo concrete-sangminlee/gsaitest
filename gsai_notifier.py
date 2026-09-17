@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -121,8 +122,35 @@ try:
 except (TypeError, ValueError):
     _HTTP_BACKOFF = 0.5
 
+# 백오프 상한(초). 지수 증가가 무한정 커지지 않도록 delay를 이 값으로 클램프합니다.
+# HTTP_BACKOFF_MAX 환경변수로 조정 가능(기본 30초, 0 이상).
+try:
+    _HTTP_BACKOFF_MAX = max(0.0, float(os.getenv("HTTP_BACKOFF_MAX", "30.0")))
+except (TypeError, ValueError):
+    _HTTP_BACKOFF_MAX = 30.0
+
+# 지터 계수(최대 +10%). 여러 클라이언트가 동시에 재시도하며 몰리는 것을 막습니다.
+_HTTP_BACKOFF_JITTER = 0.10
+
 # time.sleep을 모듈 수준 이름으로 참조해 테스트에서 monkeypatch할 수 있게 합니다.
 _sleep = time.sleep
+
+# 지터의 무작위 원천도 모듈 수준 이름으로 참조합니다. 테스트에서 gn._rand를
+# 고정값(예: 0.0)으로 monkeypatch하면 지터가 없어져 기존 sleep 시퀀스 단언이
+# 그대로 유지됩니다. _rand()가 0.0을 반환하면 지연 값은 지터 도입 전과 동일합니다.
+_rand = random.random
+
+
+def _backoff_delay(backoff: float, attempt: int, max_backoff: float) -> float:
+    """지수 백오프 지연을 계산하되, 상한(max_backoff)으로 클램프하고 소량의 지터를 더합니다.
+
+    - base = backoff * 2**attempt 를 먼저 상한으로 클램프합니다.
+    - 그 위에 최대 +10%의 지터를 얹되, 최종 값도 상한을 넘지 않도록 다시 클램프합니다.
+    - _rand()가 0.0이면 지연 값은 지터 도입 이전(min(base, cap))과 정확히 같습니다.
+    """
+    base = min(backoff * (2**attempt), max_backoff)
+    jittered = base * (1 + _HTTP_BACKOFF_JITTER * _rand())
+    return min(jittered, max_backoff)
 
 
 class _TransientHTTPError(Exception):
@@ -159,6 +187,7 @@ def _request_with_retry(
     *args: Any,
     retries: int = _HTTP_RETRIES,
     backoff: float = _HTTP_BACKOFF,
+    max_backoff: float = _HTTP_BACKOFF_MAX,
     **kwargs: Any,
 ) -> Any:
     """func(requests.get/post)를 호출하고 일시적 오류만 지수 백오프로 재시도합니다.
@@ -181,11 +210,11 @@ def _request_with_retry(
             # 5xx는 일시적 장애로 간주해 재시도, 그 외(2xx/3xx/4xx)는 그대로 반환.
             if _is_server_error(resp) and attempt < retries:
                 last_exc = None
-                _sleep(backoff * (2**attempt))
+                _sleep(_backoff_delay(backoff, attempt, max_backoff))
                 continue
             return resp
         # 예외를 잡아 재시도하는 경로에서만 여기 도달합니다.
-        _sleep(backoff * (2**attempt))
+        _sleep(_backoff_delay(backoff, attempt, max_backoff))
     # 이론상 도달하지 않지만, 안전하게 마지막 예외를 전파합니다.
     if last_exc is not None:  # pragma: no cover
         raise last_exc
@@ -595,7 +624,9 @@ def _normalize_notion_page_id(page_id_or_url: str) -> str:
 
     # 2) 하이픈 없는 32자 hex 런을 매칭합니다.
     #    예: https://www.notion.so/My-Cool-Page-Title-<32hex>
-    hex_match = re.search(r"([0-9a-f]{32})", working)
+    #    앞뒤가 hex가 아닌 경계로 감싸도록 앵커링해, 33자 이상 이어지는 긴 hex 런에서
+    #    앞 32자만 잘라내 잘못된 ID를 만들지 않도록 합니다(이 경우 아래로 폴백).
+    hex_match = re.search(r"(?<![0-9a-f])([0-9a-f]{32})(?![0-9a-f])", working)
     if hex_match:
         return hex_match.group(1)
 
@@ -670,9 +701,11 @@ def send_to_notion(
         date_str = ""
         if pub:
             try:
-                # feedparser의 published_parsed를 사용하거나 문자열 파싱
-                if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    y, mo, d, h, mi, s = entry.published_parsed[:6]
+                # Slack 경로(_format_date_kr)와 동일하게 .get() 기반으로 파싱합니다.
+                # feedparser 항목뿐 아니라 평범한 dict/Mapping 항목에서도 안전합니다.
+                parsed_time = entry.get("published_parsed") or entry.get("updated_parsed")
+                if parsed_time:
+                    y, mo, d, h, mi, s = parsed_time[:6]
                     dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
                 else:
@@ -766,7 +799,8 @@ def _dispatch_items(
     *,
     feed_url: str,
     site_url: str,
-) -> int:
+    summary: _RunSummary,
+) -> None:
     """
     항목들을 max_items_per_message 단위로 나눠 Slack으로 보내고,
     이어서 Notion으로도(설정된 경우) 베스트에포트로 전송합니다.
@@ -774,7 +808,10 @@ def _dispatch_items(
     Notion 전송 실패는 Slack 경로를 실패시키지 않습니다(경고만 남김).
     Slack 전송이 실패하면 예외가 그대로 전파됩니다.
 
-    반환값: Slack으로 전송한 항목 수(요약 로그용).
+    전송 집계: 각 청크의 Slack 전송이 성공한 직후 그 청크 항목 수를
+    summary.items_sent에 더합니다. 이렇게 하면 여러 청크 중 뒤쪽 청크에서
+    Slack 전송이 실패해 예외가 전파되더라도, 이미 전달된 청크 수만큼은
+    정확히 집계에 반영됩니다(부분 전송 정확도).
     """
     chunks = list(_chunked(items, cfg.max_items_per_message))
     for idx, chunk in enumerate(chunks, start=1):
@@ -787,6 +824,10 @@ def _dispatch_items(
             total=len(chunks),
         )
         send_to_slack(cfg.slack_webhook_url or "", payload, dry_run=cfg.dry_run)
+
+        # 이 청크의 Slack 전송이 성공했으므로 즉시 집계에 반영합니다.
+        # (이후 청크에서 실패해도 이미 전달된 항목 수는 보존됩니다.)
+        summary.items_sent += len(chunk)
 
         # Notion 전송
         if cfg.notion_token and cfg.notion_page_id:
@@ -810,9 +851,6 @@ def _dispatch_items(
                 LOG.warning("Notion 전송 스킵: NOTION_TOKEN이 설정되지 않았습니다.")
             if not cfg.notion_page_id:
                 LOG.warning("Notion 전송 스킵: NOTION_PAGE_ID가 설정되지 않았습니다.")
-
-    # Slack 전송이 성공적으로 끝난 항목 수를 반환합니다.
-    return len(items)
 
 
 @dataclass
@@ -863,8 +901,13 @@ def _process_feed(
                 if not _entry_already_sent(e, sent_ids, sent_articles)
             ]
             try:
-                summary.items_sent += _dispatch_items(
-                    cfg, feed_title, initial_items, feed_url=feed_url, site_url=site_url
+                _dispatch_items(
+                    cfg,
+                    feed_title,
+                    initial_items,
+                    feed_url=feed_url,
+                    site_url=site_url,
+                    summary=summary,
                 )
             except Exception as e:
                 LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
@@ -893,8 +936,13 @@ def _process_feed(
                 e for e in reversed(entries) if not _entry_already_sent(e, sent_ids, sent_articles)
             ]
             try:
-                summary.items_sent += _dispatch_items(
-                    cfg, feed_title, items, feed_url=feed_url, site_url=site_url
+                _dispatch_items(
+                    cfg,
+                    feed_title,
+                    items,
+                    feed_url=feed_url,
+                    site_url=site_url,
+                    summary=summary,
                 )
             except Exception as e:
                 LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
@@ -915,8 +963,13 @@ def _process_feed(
 
     # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
     try:
-        summary.items_sent += _dispatch_items(
-            cfg, feed_title, new_entries, feed_url=feed_url, site_url=site_url
+        _dispatch_items(
+            cfg,
+            feed_title,
+            new_entries,
+            feed_url=feed_url,
+            site_url=site_url,
+            summary=summary,
         )
     except Exception as e:
         LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
