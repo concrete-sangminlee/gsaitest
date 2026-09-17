@@ -138,7 +138,8 @@ _sleep = time.sleep
 # 지터의 무작위 원천도 모듈 수준 이름으로 참조합니다. 테스트에서 gn._rand를
 # 고정값(예: 0.0)으로 monkeypatch하면 지터가 없어져 기존 sleep 시퀀스 단언이
 # 그대로 유지됩니다. _rand()가 0.0을 반환하면 지연 값은 지터 도입 전과 동일합니다.
-_rand = random.random
+# 반환 타입을 float로 명시해 _backoff_delay의 warn_return_any를 방지합니다.
+_rand: Callable[[], float] = random.random
 
 
 def _backoff_delay(backoff: float, attempt: int, max_backoff: float) -> float:
@@ -148,7 +149,9 @@ def _backoff_delay(backoff: float, attempt: int, max_backoff: float) -> float:
     - 그 위에 최대 +10%의 지터를 얹되, 최종 값도 상한을 넘지 않도록 다시 클램프합니다.
     - _rand()가 0.0이면 지연 값은 지터 도입 이전(min(base, cap))과 정확히 같습니다.
     """
-    base = min(backoff * (2**attempt), max_backoff)
+    # 2.0**attempt(float 거듭제곱)로 계산해 mypy가 결과를 Any가 아닌 float로 좁히게 합니다.
+    # 지수는 항상 0 이상이므로 2**attempt(정수)와 값이 동일합니다.
+    base = min(backoff * (2.0**attempt), max_backoff)
     jittered = base * (1 + _HTTP_BACKOFF_JITTER * _rand())
     return min(jittered, max_backoff)
 

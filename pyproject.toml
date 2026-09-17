@@ -14,6 +14,10 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_ignores = true
+disallow_untyped_defs = true
+warn_return_any = true
+no_implicit_optional = true
+strict_equality = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
