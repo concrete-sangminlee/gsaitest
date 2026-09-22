@@ -2,41 +2,39 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/아시아대학연맹-2026-AUA-Academic-Conf/",
-      "updated_at": "2026-09-22T06:07:53.253029+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-학위-논문-제출-및-심사-계획-안/",
+      "updated_at": "2026-09-22T11:30:23.753742+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/졸업-및-수료-현황-확인-프로그램-「시범운영」-안내-/",
-      "updated_at": "2026-09-22T06:07:55.045842+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-학위-논문-제출-및-심사-계획-안/",
+      "updated_at": "2026-09-22T11:30:31.428812+00:00"
     },
     "https://gsai.snu.ac.kr/category/board_3_gn_44wycjtw_20201202131822/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-대학원-교과학점-통산인정-신청-안/",
-      "updated_at": "2026-09-22T06:07:56.913959+00:00"
+      "updated_at": "2026-09-22T11:30:41.248345+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2027-독일-정부초청DAAD-섬머코스-장학생-선발-안/",
-      "updated_at": "2026-09-22T06:07:58.204356+00:00"
+      "updated_at": "2026-09-22T11:30:46.439778+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
       "last_id": "https://gsai.snu.ac.kr/아시아대학연맹-2026-AUA-Academic-Conf/",
-      "updated_at": "2026-09-22T06:08:00.030403+00:00"
+      "updated_at": "2026-09-22T11:30:51.196270+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
       "last_id": "https://gsai.snu.ac.kr/리얼월드-Robot-DeploymentRD팀-엔지니어-/",
-      "updated_at": "2026-09-22T06:08:01.602168+00:00"
+      "updated_at": "2026-09-22T11:30:56.125459+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-XLpzHDEo-20220216190236/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-대한민국-AI혁신인재-커넥트-참가-사진2026/",
-      "updated_at": "2026-09-22T06:08:03.271229+00:00"
+      "updated_at": "2026-09-22T11:30:59.964000+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-3-SM-C3hoa745-20210308115330/feed/": {
       "last_id": "https://gsai.snu.ac.kr/IPAI-Seminar-Reasoning-Models-/",
-      "updated_at": "2026-09-22T06:08:05.048320+00:00"
+      "updated_at": "2026-09-22T11:31:04.824955+00:00"
     }
   },
   "sent_articles": {
-    "https://gsai.snu.ac.kr/2026-2-현송국제외국인대상장학프로그램-장학생-선발-/": "2026-09-15T10:16:41.153462+00:00",
-    "https://gsai.snu.ac.kr/18496/": "2026-09-15T10:16:41.153462+00:00",
     "https://gsai.snu.ac.kr/리얼월드-Robot-DeploymentRD팀-엔지니어-/": "2026-09-16T02:54:20.475537+00:00",
     "https://gsai.snu.ac.kr/18501/": "2026-09-16T02:54:20.475537+00:00",
     "https://gsai.snu.ac.kr/2026학년도-2학기-본교-입학전-동일과정-학점-인정-/": "2026-09-17T01:21:09.298349+00:00",
@@ -50,6 +48,8 @@
     "https://gsai.snu.ac.kr/2027-독일-정부초청DAAD-섬머코스-장학생-선발-안/": "2026-09-18T05:08:21.354016+00:00",
     "https://gsai.snu.ac.kr/18523/": "2026-09-18T05:08:21.354016+00:00",
     "https://gsai.snu.ac.kr/아시아대학연맹-2026-AUA-Academic-Conf/": "2026-09-18T05:08:21.354016+00:00",
-    "https://gsai.snu.ac.kr/18526/": "2026-09-18T05:08:21.354016+00:00"
+    "https://gsai.snu.ac.kr/18526/": "2026-09-18T05:08:21.354016+00:00",
+    "https://gsai.snu.ac.kr/2026학년도-2학기-학위-논문-제출-및-심사-계획-안/": "2026-09-22T11:30:23.753713+00:00",
+    "https://gsai.snu.ac.kr/18530/": "2026-09-22T11:30:23.753713+00:00"
   }
 }
