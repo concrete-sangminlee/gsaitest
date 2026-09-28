@@ -2,8 +2,11 @@ name: GSAI RSS → Slack Notify
 
 on:
   schedule:
-    # GitHub Actions 스케줄은 지연될 수 있습니다(플랫폼 특성).
-    - cron: "*/10 * * * *"
+    # 아래 시각은 한국 시간(KST=UTC+9)을 UTC로 변환한 값입니다.
+    # GitHub Actions 스케줄은 UTC 기준으로 동작하며, 플랫폼 특성상 수 분 지연될 수 있습니다.
+    - cron: "7 1 * * *"    # 10:07 KST
+    - cron: "14 5 * * *"   # 14:14 KST (오후 2:14)
+    - cron: "13 10 * * *"  # 19:13 KST (오후 7:13)
   workflow_dispatch:
 
 permissions:
