@@ -13,7 +13,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
-warn_unused_ignores = true
+# 선택적 import 폴백의 `# type: ignore[assignment]`가 라이브러리 미설치(오프라인)
+# 환경에서 "미사용"으로 판정돼도 오류가 나지 않도록 false로 둡니다. 이 덕분에
+# 동일한 ignore가 라이브러리 설치(CI)/미설치 두 환경 모두에서 유효합니다.
+warn_unused_ignores = false
 disallow_untyped_defs = true
 warn_return_any = true
 no_implicit_optional = true
