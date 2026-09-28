@@ -32,31 +32,40 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
+# 아래 서드파티 심볼들은 선택적(지연) import입니다. 라이브러리가 설치돼 있으면
+# 실제 객체가, 없으면 None이 바인딩됩니다. mypy가 라이브러리 설치 환경(CI)에서도
+# None 폴백을 받아들이도록, import된 심볼을 "실제 타입 | None"으로 선언한
+# 모듈 수준 이름에 대입합니다. 런타임 동작(실제 객체 또는 None)은 그대로입니다.
 try:
-    import feedparser
+    import feedparser as _feedparser
 except ImportError:  # pragma: no cover
     # feedparser는 fetch_feed 안에서만 필요합니다. 순수 로직/테스트가
     # 이 라이브러리 없이도 모듈을 import할 수 있도록 지연 처리합니다.
-    feedparser = None
+    _feedparser = None
+feedparser: ModuleType | None = _feedparser
 
 try:
-    import requests
+    import requests as _requests
 except ImportError:  # pragma: no cover
     # requests는 fetch_feed/send_to_slack 안에서만 필요합니다.
-    requests = None
+    _requests = None
+requests: ModuleType | None = _requests
 
 try:
     # 로컬에서 .env 파일을 쓰고 싶은 경우를 지원합니다.
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv as _load_dotenv
 except Exception:  # pragma: no cover
-    load_dotenv = None
+    _load_dotenv = None
+load_dotenv: Callable[..., Any] | None = _load_dotenv
 
 try:
-    from notion_client import Client
+    from notion_client import Client as _NotionClient
 except ImportError:
-    Client = None
+    _NotionClient = None
+Client: type[Any] | None = _NotionClient
 
 
 # 피드 항목을 다루는 순수 헬퍼들이 feedparser에 강하게 묶이지 않도록
