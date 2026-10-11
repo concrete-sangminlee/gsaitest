@@ -97,7 +97,8 @@ def _iso(dt: datetime) -> str:
 def test_prune_drops_old_keeps_recent():
     now = datetime.now(timezone.utc)
     recent = _iso(now - timedelta(days=1))
-    old = _iso(now - timedelta(days=10))
+    # 보관 기간 정책이 바뀌어도 깨지지 않도록 상수를 기준으로 계산합니다.
+    old = _iso(now - timedelta(days=gn._SENT_ARTICLES_MAX_AGE_DAYS + 1))
     sent = {"recent": recent, "old": old}
     pruned = gn._prune_sent_articles(sent)
     assert "recent" in pruned
@@ -105,12 +106,37 @@ def test_prune_drops_old_keeps_recent():
     assert pruned["recent"] == recent
 
 
-def test_prune_boundary_keeps_within_7_days():
+def test_prune_boundary_keeps_just_within_retention():
     now = datetime.now(timezone.utc)
-    # 7일보다 약간 이내인 항목은 유지되어야 합니다.
-    within = _iso(now - timedelta(days=6, hours=23))
+    # 보관 기간보다 약간 이내인 항목은 유지되어야 합니다.
+    within = _iso(now - timedelta(days=gn._SENT_ARTICLES_MAX_AGE_DAYS, hours=-1))
     pruned = gn._prune_sent_articles({"within": within})
     assert "within" in pruned
+
+
+def test_prune_caps_total_keys_keeping_newest(monkeypatch):
+    monkeypatch.setattr(gn, "_SENT_ARTICLES_MAX_KEYS", 2)
+    now = datetime.now(timezone.utc)
+    sent = {
+        "oldest": _iso(now - timedelta(days=3)),
+        "middle": _iso(now - timedelta(days=2)),
+        "newest": _iso(now - timedelta(days=1)),
+    }
+    pruned = gn._prune_sent_articles(sent)
+    assert set(pruned) == {"newest", "middle"}
+
+
+def test_prune_under_cap_keeps_everything(monkeypatch):
+    monkeypatch.setattr(gn, "_SENT_ARTICLES_MAX_KEYS", 10)
+    now = datetime.now(timezone.utc)
+    sent = {"a": _iso(now - timedelta(days=1)), "b": _iso(now - timedelta(days=2))}
+    assert gn._prune_sent_articles(sent) == sent
+
+
+def test_prune_accepts_naive_timestamp_as_utc():
+    naive = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    pruned = gn._prune_sent_articles({"naive": naive.isoformat()})
+    assert "naive" in pruned
 
 
 def test_prune_tolerates_malformed_timestamps():

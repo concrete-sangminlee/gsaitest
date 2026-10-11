@@ -74,7 +74,12 @@ Entry = Mapping[str, Any]
 
 LOG = logging.getLogger("gsai_notifier")
 
-_SENT_ARTICLES_MAX_AGE_DAYS = 7
+# 전송 이력 보관 기간. 기준 글이 피드에서 사라져 발행 시각으로 복구할 때
+# 이 이력이 중복 방지의 주 방어선이 되므로 넉넉하게 둡니다.
+_SENT_ARTICLES_MAX_AGE_DAYS = 30
+
+# 이력이 비정상적으로 커지는 것을 막는 상한(오래된 항목부터 버립니다).
+_SENT_ARTICLES_MAX_KEYS = 2000
 
 # SNU 방화벽이 봇 UA를 차단하므로 브라우저 UA를 사용합니다(USER_AGENT로 재정의 가능).
 _USER_AGENT = os.getenv(
@@ -297,9 +302,18 @@ def load_state(path: Path) -> dict[str, Any]:
     {
       "version": 1,
       "feeds": {
-        "<feed_url>": {"last_id": "...", "updated_at": "..."}
-      }
+        "<feed_url>": {
+          "last_id": "...",         # 마지막으로 처리한 글의 uid
+          "last_published": "...",  # 그 시점 피드의 최신 발행 시각(ISO)
+          "updated_at": "..."
+        }
+      },
+      "sent_articles": {"<uid 또는 link>": "<전송 시각 ISO>"}
     }
+
+    `last_published`는 기준 글이 피드에서 사라졌을 때 발행 시각으로 새 글을
+    복구하기 위한 것이고, `sent_articles`는 피드 간/실행 간 중복 전송을 막는
+    이력입니다. 둘 다 없어도 동작하므로 과거 상태 파일과 호환됩니다.
     """
     default_state: dict[str, Any] = {"version": 1, "feeds": {}}
     if not path.exists():
@@ -395,18 +409,61 @@ def entry_pub(entry: Entry) -> str:
     return (entry.get("published") or entry.get("updated") or "").strip()
 
 
-def _prune_sent_articles(sent_articles: dict[str, str]) -> dict[str, str]:
-    """오래된 전송 이력을 제거합니다."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_SENT_ARTICLES_MAX_AGE_DAYS)
-    pruned: dict[str, str] = {}
-    for key, ts in sent_articles.items():
+def entry_published_dt(entry: Entry) -> datetime | None:
+    """항목의 발행 시각을 UTC datetime으로 반환합니다(해석 불가하면 None).
+
+    feedparser는 `published_parsed`/`updated_parsed`에 time.struct_time을 담아
+    주며, 테스트에서는 같은 자리에 평범한 튜플을 넣어도 동작합니다.
+    """
+    for key in ("published_parsed", "updated_parsed"):
+        parsed = entry.get(key)
+        if not parsed:
+            continue
         try:
-            dt = datetime.fromisoformat(ts)
-            if dt >= cutoff:
-                pruned[key] = ts
-        except (ValueError, TypeError):
-            pass
-    return pruned
+            y, mo, d, h, mi, s = (int(v) for v in tuple(parsed)[:6])
+        except (TypeError, ValueError):
+            continue
+        try:
+            return datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _newest_published_iso(entries: list[Entry]) -> str | None:
+    """항목들 중 가장 최신 발행 시각을 ISO 문자열로 반환합니다."""
+    stamps = [dt for dt in (entry_published_dt(e) for e in entries) if dt is not None]
+    if not stamps:
+        return None
+    return max(stamps).isoformat()
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    """ISO 문자열을 UTC datetime으로 해석합니다(실패하면 None)."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _prune_sent_articles(sent_articles: dict[str, str]) -> dict[str, str]:
+    """오래된 전송 이력을 제거하고, 개수 상한을 넘으면 오래된 것부터 버립니다."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SENT_ARTICLES_MAX_AGE_DAYS)
+    kept: list[tuple[str, str, datetime]] = []
+    for key, ts in sent_articles.items():
+        dt = _parse_iso_utc(ts) if isinstance(ts, str) else None
+        if dt is not None and dt >= cutoff:
+            kept.append((key, ts, dt))
+
+    if len(kept) > _SENT_ARTICLES_MAX_KEYS:
+        # 최신 항목이 중복 방지에 더 중요하므로 오래된 것부터 잘라냅니다.
+        kept.sort(key=lambda item: item[2], reverse=True)
+        kept = kept[:_SENT_ARTICLES_MAX_KEYS]
+
+    return {key: ts for key, ts, _ in kept}
 
 
 def _entry_already_sent(
@@ -441,12 +498,45 @@ def _mark_entries_sent(
             sent_articles[link] = now
 
 
+def _new_entries_by_published(
+    entries: list[Entry],
+    last_published: str | None,
+) -> list[Entry] | None:
+    """발행 시각을 기준으로 새 글을 가려냅니다(오래된 글부터).
+
+    기준 시각이 없거나 항목 중 날짜를 해석할 수 없는 것이 있으면 None을 돌려
+    호출자가 기존 ON_STATE_MISS 경로를 쓰도록 합니다. 일부만 날짜가 있는
+    피드에서 섣불리 판단해 과다 전송하는 것을 막기 위함입니다.
+    """
+    cutoff = _parse_iso_utc(last_published)
+    if cutoff is None:
+        return None
+
+    dated: list[tuple[Entry, datetime]] = []
+    for e in entries:
+        dt = entry_published_dt(e)
+        if dt is None:
+            return None
+        dated.append((e, dt))
+
+    newer = [(e, dt) for e, dt in dated if dt > cutoff]
+    newer.sort(key=lambda item: item[1])  # 오래된 글부터 알림
+    return [e for e, _ in newer]
+
+
 def compute_new_entries(
     entries: list[Entry],
     last_seen_id: str | None,
+    last_published: str | None = None,
 ) -> tuple[list[Entry], str | None, bool]:
     """
     returns: (new_entries_oldest_first, newest_id, last_seen_found_in_feed)
+
+    `last_seen_id`를 피드에서 찾으면 그 위치를 기준으로 새 글을 가립니다.
+    찾지 못한 경우(기준 글이 삭제되었거나 피드 표시 개수를 넘겨 밀려난 경우)
+    `last_published`가 주어지면 발행 시각으로 새 글을 복구해 누락을 막습니다.
+    복구에 성공하면 found=True로 돌려주어 호출자가 ON_STATE_MISS 경로로
+    빠지지 않게 합니다. 중복은 sent_articles 이력이 따로 막아 줍니다.
     """
     if not entries:
         return [], None, True
@@ -463,11 +553,20 @@ def compute_new_entries(
             break
         new_entries.append(e)
 
-    if not found:
-        return [], newest_id, False
+    if found:
+        new_entries.reverse()  # 오래된 글부터 알림
+        return new_entries, newest_id, True
 
-    new_entries.reverse()  # 오래된 글부터 알림
-    return new_entries, newest_id, True
+    recovered = _new_entries_by_published(entries, last_published)
+    if recovered is not None:
+        LOG.warning(
+            "기준 글이 피드에 없어 발행 시각으로 복구했습니다: last_id=%s, 복구된 새 글=%d건",
+            last_seen_id,
+            len(recovered),
+        )
+        return recovered, newest_id, True
+
+    return [], newest_id, False
 
 
 def _format_date_kr(pub_str: str, entry: Entry) -> str:
@@ -871,6 +970,25 @@ class _RunSummary:
     items_sent: int = 0
     fetch_failures: int = 0
     slack_failures: int = 0
+    state_recoveries: int = 0
+
+
+def _feed_state_record(newest_id: str | None, entries: list[Entry]) -> dict[str, Any]:
+    """피드 상태 레코드를 만듭니다(기준 글 id + 최신 발행 시각)."""
+    record: dict[str, Any] = {"last_id": newest_id, "updated_at": _now_iso()}
+    newest_published = _newest_published_iso(entries)
+    if newest_published:
+        record["last_published"] = newest_published
+    return record
+
+
+def _feed_state_changed(current: Mapping[str, Any], desired: Mapping[str, Any]) -> bool:
+    """updated_at을 뺀 실질 필드가 달라졌는지 확인합니다.
+
+    변화가 없는데도 updated_at만 갱신하면 state.json이 매 실행 바뀌어
+    의미 없는 커밋이 쌓이므로, 기록 전에 이 검사를 통과해야 합니다.
+    """
+    return any(current.get(key) != desired.get(key) for key in ("last_id", "last_published"))
 
 
 def _process_feed(
@@ -900,6 +1018,7 @@ def _process_feed(
 
     feed_state = feeds.get(feed_url) or {}
     last_seen_id = feed_state.get("last_id")
+    last_published = feed_state.get("last_published")
 
     # 첫 실행: 기준점만 찍거나, 옵션으로 최신 N개를 보냅니다.
     if last_seen_id is None:
@@ -925,11 +1044,14 @@ def _process_feed(
 
         _mark_entries_sent(initial_items, sent_ids, sent_articles)
         newest_id = entry_uid(entries[0]) if entries else None
-        feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        feeds[feed_url] = _feed_state_record(newest_id, entries)
         LOG.info("첫 실행 기준점 저장: %s", newest_id)
         return 0
 
-    new_entries, newest_id, found = compute_new_entries(entries, last_seen_id)
+    new_entries, newest_id, found = compute_new_entries(entries, last_seen_id, last_published)
+    if found and new_entries and not any(entry_uid(e) == last_seen_id for e in entries):
+        # 기준 글이 사라졌지만 발행 시각으로 복구된 경우입니다.
+        summary.state_recoveries += 1
     # 다른 피드 또는 이전 실행에서 이미 보낸 글 제거 (uid+link 이중 검사)
     new_entries = [e for e in new_entries if not _entry_already_sent(e, sent_ids, sent_articles)]
 
@@ -960,15 +1082,17 @@ def _process_feed(
 
         _mark_entries_sent(items, sent_ids, sent_articles)
         # 어쨌든 최신 기준점으로 재설정(다음 실행부터 정상 동작)
-        feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        feeds[feed_url] = _feed_state_record(newest_id, entries)
         return 0
 
     if not new_entries:
         LOG.info("새 글 없음: %s", feed_title)
-        # sent_uids 필터링으로 비워진 경우에도 상태를 갱신해야
-        # 다음 실행에서 같은 글을 다시 보내지 않습니다.
-        if newest_id:
-            feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+        # 중복 필터링으로 비워진 경우에는 기준점을 전진시켜야 다음 실행에서
+        # 같은 글을 다시 보내지 않습니다. 반대로 실제 변화가 없으면 기록하지
+        # 않습니다(매 실행 state.json이 바뀌어 불필요한 커밋이 쌓이므로).
+        desired = _feed_state_record(newest_id, entries)
+        if newest_id and _feed_state_changed(feed_state, desired):
+            feeds[feed_url] = desired
         return 0
 
     # 새 글이 있으면, Slack 전송 성공 후 상태를 업데이트합니다(누락 방지).
@@ -986,7 +1110,7 @@ def _process_feed(
         return 3
 
     _mark_entries_sent(new_entries, sent_ids, sent_articles)
-    feeds[feed_url] = {"last_id": newest_id, "updated_at": _now_iso()}
+    feeds[feed_url] = _feed_state_record(newest_id, entries)
     LOG.info("상태 업데이트: %s -> %s", last_seen_id, newest_id)
     return 0
 
@@ -1016,11 +1140,14 @@ def run_once(cfg: Config) -> int:
     save_state(cfg.state_file, state)
 
     LOG.info(
-        "run summary: feeds=%d items_sent=%d fetch_failures=%d slack_failures=%d exit=%d",
+        "run summary: feeds=%d items_sent=%d fetch_failures=%d slack_failures=%d "
+        "state_recoveries=%d sent_history=%d exit=%d",
         summary.feeds_checked,
         summary.items_sent,
         summary.fetch_failures,
         summary.slack_failures,
+        summary.state_recoveries,
+        len(sent_articles),
         overall_exit,
     )
     return overall_exit
