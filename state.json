@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/아시아대학연합AUA-중국-칭화대THU-SDG-Schol/",
-      "updated_at": "2026-10-12T07:15:33.036789+00:00",
-      "last_published": "2026-09-23T19:54:33+00:00"
+      "last_id": "https://gsai.snu.ac.kr/IPAI-Seminar-When-AI-Meets-the/",
+      "updated_at": "2026-10-14T10:06:52.452529+00:00",
+      "last_published": "2026-10-14T15:11:33+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-학위-논문-제출-및-심사-계획-안/",
@@ -37,10 +37,13 @@
       "last_published": "2026-08-21T17:52:06+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-3-SM-C3hoa745-20210308115330/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/IPAI-Seminar-Reasoning-Models-/",
-      "updated_at": "2026-10-12T07:15:45.980760+00:00",
-      "last_published": "2026-08-20T12:52:56+00:00"
+      "last_id": "https://gsai.snu.ac.kr/IPAI-Seminar-When-AI-Meets-the/",
+      "updated_at": "2026-10-14T10:07:07.073120+00:00",
+      "last_published": "2026-10-14T15:11:33+00:00"
     }
   },
-  "sent_articles": {}
+  "sent_articles": {
+    "https://gsai.snu.ac.kr/IPAI-Seminar-When-AI-Meets-the/": "2026-10-14T10:06:52.452494+00:00",
+    "https://gsai.snu.ac.kr/18553/": "2026-10-14T10:06:52.452494+00:00"
+  }
 }
