@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2026-2학기-박사학위논문심사-공개발표-일정-안내26/",
-      "updated_at": "2026-10-29T06:56:47.201282+00:00",
-      "last_published": "2026-10-29T10:19:58+00:00"
+      "last_id": "https://gsai.snu.ac.kr/해외-박사후연구원-모집-1120-캐나다-Mila-AI-/",
+      "updated_at": "2026-11-02T13:25:39.445668+00:00",
+      "last_published": "2026-11-02T18:17:41+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-2학기-박사학위논문심사-공개발표-일정-안내26/",
@@ -27,9 +27,9 @@
       "last_published": "2026-09-23T19:54:33+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/세아해암학술장학재단에서-「제1회-차세대-공학연구자-Al/",
-      "updated_at": "2026-10-27T10:29:00.408278+00:00",
-      "last_published": "2026-10-27T16:57:48+00:00"
+      "last_id": "https://gsai.snu.ac.kr/해외-박사후연구원-모집-1120-캐나다-Mila-AI-/",
+      "updated_at": "2026-11-02T13:25:48.792205+00:00",
+      "last_published": "2026-11-02T18:17:41+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-XLpzHDEo-20220216190236/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-대한민국-AI혁신인재-커넥트-참가-사진2026/",
@@ -54,6 +54,8 @@
     "https://gsai.snu.ac.kr/2026학년도-2학기「강의-중간-수강소감-조사」실시-안/": "2026-10-29T06:56:47.201252+00:00",
     "https://gsai.snu.ac.kr/18568/": "2026-10-29T06:56:47.201252+00:00",
     "https://gsai.snu.ac.kr/2026-2학기-박사학위논문심사-공개발표-일정-안내26/": "2026-10-29T06:56:47.201252+00:00",
-    "https://gsai.snu.ac.kr/18571/": "2026-10-29T06:56:47.201252+00:00"
+    "https://gsai.snu.ac.kr/18571/": "2026-10-29T06:56:47.201252+00:00",
+    "https://gsai.snu.ac.kr/해외-박사후연구원-모집-1120-캐나다-Mila-AI-/": "2026-11-02T13:25:39.445638+00:00",
+    "https://gsai.snu.ac.kr/18573/": "2026-11-02T13:25:39.445638+00:00"
   }
 }
