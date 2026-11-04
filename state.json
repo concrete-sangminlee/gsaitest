@@ -2,14 +2,14 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/",
-      "updated_at": "2026-11-03T07:48:22.286959+00:00",
-      "last_published": "2026-11-03T13:42:04+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
+      "updated_at": "2026-11-04T07:26:45.739928+00:00",
+      "last_published": "2026-11-04T14:36:19+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2026-2학기-박사학위논문심사-공개발표-일정-안내26/",
-      "updated_at": "2026-10-29T06:56:49.114936+00:00",
-      "last_published": "2026-10-29T10:19:58+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
+      "updated_at": "2026-11-04T07:26:47.374998+00:00",
+      "last_published": "2026-11-04T14:36:19+00:00"
     },
     "https://gsai.snu.ac.kr/category/board_3_gn_44wycjtw_20201202131822/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기「강의-중간-수강소감-조사」실시-안/",
@@ -60,6 +60,8 @@
     "https://gsai.snu.ac.kr/학부대학BK21-워크숍-Nature-Masterclas/": "2026-11-03T07:48:22.286927+00:00",
     "https://gsai.snu.ac.kr/18575/": "2026-11-03T07:48:22.286927+00:00",
     "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/": "2026-11-03T07:48:22.286927+00:00",
-    "https://gsai.snu.ac.kr/18578/": "2026-11-03T07:48:22.286927+00:00"
+    "https://gsai.snu.ac.kr/18578/": "2026-11-03T07:48:22.286927+00:00",
+    "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/": "2026-11-04T07:26:45.739894+00:00",
+    "https://gsai.snu.ac.kr/18582/": "2026-11-04T07:26:45.739894+00:00"
   }
 }
