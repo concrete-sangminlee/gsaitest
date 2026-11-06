@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
-      "updated_at": "2026-11-04T07:26:45.739928+00:00",
-      "last_published": "2026-11-04T14:36:19+00:00"
+      "last_id": "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/",
+      "updated_at": "2026-11-06T07:51:36.912418+00:00",
+      "last_published": "2026-11-06T15:39:46+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
@@ -17,9 +17,9 @@
       "last_published": "2026-10-29T09:51:32+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2027학년도-2학기-해외파견-교환학생-모집-설명회-안/",
-      "updated_at": "2026-10-27T10:28:55.300105+00:00",
-      "last_published": "2026-10-27T16:54:31+00:00"
+      "last_id": "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/",
+      "updated_at": "2026-11-06T07:51:43.726741+00:00",
+      "last_published": "2026-11-06T15:39:46+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
       "last_id": "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/",
@@ -62,6 +62,8 @@
     "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/": "2026-11-03T07:48:22.286927+00:00",
     "https://gsai.snu.ac.kr/18578/": "2026-11-03T07:48:22.286927+00:00",
     "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/": "2026-11-04T07:26:45.739894+00:00",
-    "https://gsai.snu.ac.kr/18582/": "2026-11-04T07:26:45.739894+00:00"
+    "https://gsai.snu.ac.kr/18582/": "2026-11-04T07:26:45.739894+00:00",
+    "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/": "2026-11-06T07:51:36.912395+00:00",
+    "https://gsai.snu.ac.kr/18585/": "2026-11-06T07:51:36.912395+00:00"
   }
 }
