@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/",
-      "updated_at": "2026-11-06T07:51:36.912418+00:00",
-      "last_published": "2026-11-06T15:39:46+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/",
+      "updated_at": "2026-11-09T07:51:31.583587+00:00",
+      "last_published": "2026-11-09T13:01:13+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
@@ -17,9 +17,9 @@
       "last_published": "2026-10-29T09:51:32+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/",
-      "updated_at": "2026-11-06T07:51:43.726741+00:00",
-      "last_published": "2026-11-06T15:39:46+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/",
+      "updated_at": "2026-11-09T07:51:37.019913+00:00",
+      "last_published": "2026-11-09T13:01:13+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
       "last_id": "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/",
@@ -27,9 +27,9 @@
       "last_published": "2026-11-03T13:42:04+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/학부대학BK21-워크숍-Nature-Masterclas/",
-      "updated_at": "2026-11-03T07:48:33.347299+00:00",
-      "last_published": "2026-11-03T13:36:55+00:00"
+      "last_id": "https://gsai.snu.ac.kr/채용-서울대학교-인지신경과학-연구실Connectome-/",
+      "updated_at": "2026-11-09T07:51:43.218448+00:00",
+      "last_published": "2026-11-09T10:29:15+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-XLpzHDEo-20220216190236/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-대한민국-AI혁신인재-커넥트-참가-사진2026/",
@@ -64,6 +64,10 @@
     "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/": "2026-11-04T07:26:45.739894+00:00",
     "https://gsai.snu.ac.kr/18582/": "2026-11-04T07:26:45.739894+00:00",
     "https://gsai.snu.ac.kr/LG-CNS서울대학교-컴퓨터공학부협동과정-인공지능전공-/": "2026-11-06T07:51:36.912395+00:00",
-    "https://gsai.snu.ac.kr/18585/": "2026-11-06T07:51:36.912395+00:00"
+    "https://gsai.snu.ac.kr/18585/": "2026-11-06T07:51:36.912395+00:00",
+    "https://gsai.snu.ac.kr/채용-서울대학교-인지신경과학-연구실Connectome-/": "2026-11-09T07:51:31.583558+00:00",
+    "https://gsai.snu.ac.kr/18588/": "2026-11-09T07:51:31.583558+00:00",
+    "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/": "2026-11-09T07:51:31.583558+00:00",
+    "https://gsai.snu.ac.kr/18590/": "2026-11-09T07:51:31.583558+00:00"
   }
 }
