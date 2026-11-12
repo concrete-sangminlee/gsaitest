@@ -197,6 +197,24 @@ def _is_server_error(resp: Any) -> bool:
     return isinstance(status, int) and 500 <= status <= 599
 
 
+def _is_rate_limited(resp: Any) -> bool:
+    """HTTP 429(요청 과다)인지 판단합니다. Slack은 짧은 시간에 여러 번 보내면 429를 줍니다."""
+    return getattr(resp, "status_code", None) == 429
+
+
+def _retry_after_seconds(resp: Any) -> float | None:
+    """429 응답의 Retry-After 헤더(초)를 읽습니다. 없거나 해석할 수 없으면 None."""
+    headers = getattr(resp, "headers", None) or {}
+    raw = headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
 def _request_with_retry(
     func: Callable[..., Any],
     *args: Any,
@@ -208,7 +226,8 @@ def _request_with_retry(
     """func(requests.get/post)를 호출하고 일시적 오류만 지수 백오프로 재시도합니다.
 
     - 연결/타임아웃 계열 예외와 HTTP 5xx 응답은 재시도합니다.
-    - 4xx 및 그 밖의 비일시적 오류/예외는 재시도하지 않고 즉시 전파합니다.
+    - HTTP 429는 Retry-After(없으면 백오프)만큼 기다린 뒤 재시도합니다.
+    - 그 밖의 4xx 및 비일시적 오류/예외는 재시도하지 않고 즉시 전파합니다.
     - 마지막 시도의 응답/예외는 그대로 반환·전파합니다.
     """
     retryable = _retryable_exceptions()
@@ -222,7 +241,16 @@ def _request_with_retry(
             if attempt >= retries:
                 raise
         else:
-            # 5xx는 일시적 장애로 간주해 재시도, 그 외(2xx/3xx/4xx)는 그대로 반환.
+            # 5xx는 일시적 장애로 간주해 재시도합니다. 429는 서버가 알려준
+            # Retry-After만큼(상한 내에서) 기다린 뒤 재시도합니다.
+            # 그 외(2xx/3xx/4xx)는 그대로 반환합니다.
+            if _is_rate_limited(resp) and attempt < retries:
+                last_exc = None
+                wait = _retry_after_seconds(resp)
+                if wait is None:
+                    wait = _backoff_delay(backoff, attempt, max_backoff)
+                _sleep(min(wait, max_backoff))
+                continue
             if _is_server_error(resp) and attempt < retries:
                 last_exc = None
                 _sleep(_backoff_delay(backoff, attempt, max_backoff))
@@ -296,7 +324,11 @@ def load_config() -> Config:
     )
 
 
-def load_state(path: Path) -> dict[str, Any]:
+class StateFileError(Exception):
+    """상태 파일이 있으나 읽거나 해석할 수 없을 때(손상/충돌 표식/잘못된 형태) 발생합니다."""
+
+
+def load_state(path: Path, *, strict: bool = False) -> dict[str, Any]:
     """
     상태 파일 포맷(v1):
     {
@@ -314,6 +346,12 @@ def load_state(path: Path) -> dict[str, Any]:
     `last_published`는 기준 글이 피드에서 사라졌을 때 발행 시각으로 새 글을
     복구하기 위한 것이고, `sent_articles`는 피드 간/실행 간 중복 전송을 막는
     이력입니다. 둘 다 없어도 동작하므로 과거 상태 파일과 호환됩니다.
+
+    파일이 없으면 첫 실행으로 보고 빈 상태를 돌려줍니다. 파일이 있는데 읽을 수
+    없거나 깨져 있으면, 기본(strict=False)은 경고 후 빈 상태로 시작하고
+    strict=True면 StateFileError를 던집니다. 실제 실행(run_once)은 strict로
+    읽습니다: 깨진 파일을 첫 실행처럼 다루면 그 사이 글을 놓치거나(기준점 재설정)
+    수동 실행에서 이미 알린 글을 다시 보내고, 전송 이력까지 덮어써 버리기 때문입니다.
     """
     default_state: dict[str, Any] = {"version": 1, "feeds": {}}
     if not path.exists():
@@ -323,16 +361,22 @@ def load_state(path: Path) -> dict[str, Any]:
     try:
         raw = path.read_text(encoding="utf-8")
     except Exception as e:
+        if strict:
+            raise StateFileError(f"상태 파일을 읽을 수 없습니다({path}): {e}") from e
         LOG.warning("상태 파일 읽기 실패(%s). 초기 상태로 시작합니다: %s", path, e)
         return default_state
 
     if not raw.strip():
+        if strict:
+            raise StateFileError(f"상태 파일이 비어 있습니다({path})")
         LOG.info("상태 파일이 비어 있습니다(%s). 초기 상태로 시작합니다.", path)
         return default_state
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
+        if strict:
+            raise StateFileError(f"상태 파일 JSON 파싱 실패({path}): {e}") from e
         LOG.warning("상태 파일 JSON 파싱 실패(%s). 초기 상태로 시작합니다: %s", path, e)
         return default_state
 
@@ -341,7 +385,9 @@ def load_state(path: Path) -> dict[str, Any]:
         feeds = {k: {"last_id": v, "updated_at": _now_iso()} for k, v in data.items()}
         return {"version": 1, "feeds": feeds}
 
-    if not isinstance(data, dict) or "feeds" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("feeds"), dict):
+        if strict:
+            raise StateFileError(f"상태 파일 형식이 올바르지 않습니다({path})")
         return default_state
 
     return data
@@ -371,15 +417,16 @@ def fetch_feed(url: str, *, verify_ssl: bool) -> Any:
     resp = _request_with_retry(requests.get, url, headers=headers, timeout=20, verify=verify_ssl)
     resp.raise_for_status()
 
-    # 방화벽 차단 페이지는 200으로 내려오므로 본문을 직접 확인합니다.
-    if b"waf/error" in resp.content or b"snucert.snu.ac.kr" in resp.content:
-        raise RuntimeError(f"방화벽(WAF)에 차단되었습니다. User-Agent 확인이 필요합니다: {url}")
-
     parsed = feedparser.parse(resp.content)
 
     # 항목이 0개면 정상 응답이 아닐 가능성이 큽니다(차단/장애/포맷 변경).
     # 조용히 "새 글 없음"으로 넘어가면 알림이 멈춘 걸 알 수 없으므로 실패로 처리합니다.
     if not parsed.entries:
+        # 방화벽 차단 페이지는 200으로 내려오고 항목이 없습니다. 차단 표식은 항목이
+        # 없을 때만 원인 설명에 씁니다. 정상 피드의 글 본문이 snucert.snu.ac.kr을
+        # 언급하더라도(보안 공지 등) 그 피드를 차단으로 오판하지 않기 위함입니다.
+        if b"waf/error" in resp.content or b"snucert.snu.ac.kr" in resp.content:
+            raise RuntimeError(f"방화벽(WAF)에 차단되었습니다. User-Agent 확인이 필요합니다: {url}")
         reason = f" ({parsed.get('bozo_exception')})" if parsed.get("bozo") else ""
         raise RuntimeError(f"피드에 항목이 없습니다{reason}: {url}")
 
@@ -705,8 +752,24 @@ def send_to_slack(webhook_url: str, payload: dict[str, Any], *, dry_run: bool) -
             "requests 라이브러리가 설치되지 않았습니다. pip install -r requirements.txt"
         )
 
-    resp = _request_with_retry(requests.post, webhook_url, json=payload, timeout=20)
-    resp.raise_for_status()
+    # Webhook URL 자체가 비밀(경로에 토큰 포함)이므로, URL이 담길 수 있는 requests
+    # 예외 메시지나 HTTPError를 그대로 올리지 않습니다. 그대로 올리면 호출자의
+    # LOG.exception이 Actions 로그에 URL을 남깁니다. 원인만 남긴 예외로 바꿉니다.
+    request_error = getattr(requests, "RequestException", None) or getattr(
+        getattr(requests, "exceptions", None), "RequestException", None
+    )
+    catchable: tuple[type[BaseException], ...] = _retryable_exceptions()
+    if isinstance(request_error, type) and issubclass(request_error, BaseException):
+        catchable = (*catchable, request_error)
+    try:
+        resp = _request_with_retry(requests.post, webhook_url, json=payload, timeout=20)
+    except catchable as e:
+        raise RuntimeError(f"Slack 요청 실패: {type(e).__name__}") from None
+
+    status = getattr(resp, "status_code", 0)
+    if isinstance(status, int) and status >= 400:
+        body = (getattr(resp, "text", "") or "")[:200]
+        raise RuntimeError(f"Slack HTTP {status}: {body}")
 
 
 def _normalize_notion_page_id(page_id_or_url: str) -> str:
@@ -909,6 +972,7 @@ def _dispatch_items(
     feed_url: str,
     site_url: str,
     summary: _RunSummary,
+    on_sent: Callable[[list[Entry]], None] | None = None,
 ) -> None:
     """
     항목들을 max_items_per_message 단위로 나눠 Slack으로 보내고,
@@ -921,6 +985,10 @@ def _dispatch_items(
     summary.items_sent에 더합니다. 이렇게 하면 여러 청크 중 뒤쪽 청크에서
     Slack 전송이 실패해 예외가 전파되더라도, 이미 전달된 청크 수만큼은
     정확히 집계에 반영됩니다(부분 전송 정확도).
+
+    `on_sent`는 각 청크의 Slack 전송이 성공한 직후 그 청크로 호출됩니다.
+    호출자는 여기서 전송 이력을 기록해, 뒤쪽 청크가 실패해도 앞서 전달된
+    글이 다음 실행에서 다시 전송되지 않게 합니다.
     """
     chunks = list(_chunked(items, cfg.max_items_per_message))
     for idx, chunk in enumerate(chunks, start=1):
@@ -937,14 +1005,13 @@ def _dispatch_items(
         # 이 청크의 Slack 전송이 성공했으므로 즉시 집계에 반영합니다.
         # (이후 청크에서 실패해도 이미 전달된 항목 수는 보존됩니다.)
         summary.items_sent += len(chunk)
+        if on_sent is not None:
+            on_sent(chunk)
 
         # Notion 전송
         if cfg.notion_token and cfg.notion_page_id:
-            LOG.info(
-                "Notion 전송 시도: token=%s..., page_id=%s",
-                cfg.notion_token[:10] if cfg.notion_token else "None",
-                cfg.notion_page_id[:20] if cfg.notion_page_id else "None",
-            )
+            # 토큰/페이지 ID는 일부라도 로그에 남기지 않습니다(Actions 로그 공개 범위).
+            LOG.info("Notion 전송 시도: %d건", len(chunk))
             try:
                 send_to_notion(
                     token=str(cfg.notion_token),
@@ -1006,6 +1073,11 @@ def _process_feed(
     전송한 항목 수는 summary.items_sent 에 누적됩니다.
     """
     LOG.info("피드 확인: %s", feed_url)
+
+    def mark_sent(chunk: list[Entry]) -> None:
+        # Slack 전송이 성공한 청크를 즉시 이력에 남깁니다(부분 실패 시 재전송 방지).
+        _mark_entries_sent(chunk, sent_ids, sent_articles)
+
     try:
         parsed = fetch_feed(feed_url, verify_ssl=cfg.verify_ssl)
     except Exception as e:
@@ -1037,6 +1109,7 @@ def _process_feed(
                     feed_url=feed_url,
                     site_url=site_url,
                     summary=summary,
+                    on_sent=mark_sent,
                 )
             except Exception as e:
                 LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
@@ -1075,6 +1148,7 @@ def _process_feed(
                     feed_url=feed_url,
                     site_url=site_url,
                     summary=summary,
+                    on_sent=mark_sent,
                 )
             except Exception as e:
                 LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
@@ -1104,6 +1178,7 @@ def _process_feed(
             feed_url=feed_url,
             site_url=site_url,
             summary=summary,
+            on_sent=mark_sent,
         )
     except Exception as e:
         LOG.exception("Slack 전송 실패: %s (%s)", feed_title, e)
@@ -1116,28 +1191,42 @@ def _process_feed(
 
 
 def run_once(cfg: Config) -> int:
-    state = load_state(cfg.state_file)
+    try:
+        state = load_state(cfg.state_file, strict=True)
+    except StateFileError as e:
+        # 아무것도 보내지 않고, 파일도 건드리지 않은 채 실패합니다.
+        LOG.error("%s — git 기록에서 이전 state.json을 복구하세요. 전송을 중단합니다.", e)
+        print(f"::error::state.json 손상: {e}", file=sys.stderr)
+        return 4
     feeds: dict[str, Any] = state.setdefault("feeds", {})
 
     # 영구 전송 이력: 이전 실행에서 보낸 글도 중복 방지 (uid+link 모두 기록)
-    sent_articles: dict[str, str] = _prune_sent_articles(state.get("sent_articles", {}))
+    raw_history = state.get("sent_articles")
+    sent_articles: dict[str, str] = _prune_sent_articles(
+        raw_history if isinstance(raw_history, dict) else {}
+    )
+    # 같은 dict 객체를 state에 걸어 두어, 전송 직후 기록된 이력이 저장에 바로 반영되게 합니다.
+    state["sent_articles"] = sent_articles
 
     overall_exit = 0
     sent_ids: set[str] = set()  # 피드 간 중복 알림 방지 (uid + link)
     summary = _RunSummary()
 
-    for feed_url in cfg.feed_urls:
-        summary.feeds_checked += 1
-        exit_code = _process_feed(cfg, feed_url, feeds, sent_ids, sent_articles, summary)
-        if exit_code == 2:
-            summary.fetch_failures += 1
-        elif exit_code == 3:
-            summary.slack_failures += 1
-        if exit_code:
-            overall_exit = exit_code
-
-    state["sent_articles"] = sent_articles
-    save_state(cfg.state_file, state)
+    # 피드마다 저장합니다. 실행이 중간에 끊겨도(취소, 러너 종료, 예외) 그때까지
+    # Slack에 보낸 글은 기록이 남아 다음 실행에서 다시 보내지 않습니다.
+    try:
+        for feed_url in cfg.feed_urls:
+            summary.feeds_checked += 1
+            exit_code = _process_feed(cfg, feed_url, feeds, sent_ids, sent_articles, summary)
+            if exit_code == 2:
+                summary.fetch_failures += 1
+            elif exit_code == 3:
+                summary.slack_failures += 1
+            if exit_code:
+                overall_exit = exit_code
+            save_state(cfg.state_file, state)
+    finally:
+        save_state(cfg.state_file, state)
 
     LOG.info(
         "run summary: feeds=%d items_sent=%d fetch_failures=%d slack_failures=%d "

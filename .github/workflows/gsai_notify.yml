@@ -12,17 +12,29 @@ on:
 permissions:
   contents: write
 
+# 실행이 겹치면(지연된 스케줄 실행 중에 수동 실행 등) 같은 글을 두 번 보내고
+# 한쪽 push가 실패합니다. 한 번에 하나만 돌고 나머지는 기다리게 합니다.
+concurrency:
+  group: gsai-notify
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # 트리거 시점 SHA가 아니라 항상 최신 main을 읽습니다. 그렇지 않으면 대기하던
+          # 실행이나 "Re-run"이 오래된 state.json으로 돌아 이미 보낸 글을 다시 보냅니다.
+          ref: main
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: |
@@ -46,15 +58,33 @@ jobs:
           python gsai_notifier.py
 
       - name: Commit state.json (if changed)
+        # 알림 단계가 실패해도(피드 하나 장애, Slack 일부 실패) 반드시 실행합니다.
+        # 이 단계가 건너뛰어지면 그 실행에서 이미 보낸 글이 기록되지 않아 다음 실행에서
+        # 다시 전송됩니다. 알림 단계가 실패했으므로 실행 결과는 그대로 빨간색입니다.
+        if: ${{ always() }}
         run: |
-          if git diff --quiet -- state.json; then
+          if [ ! -f state.json ]; then
+            echo "state.json 없음 (알림 단계가 시작 전에 실패) — 커밋할 것 없음"
+            exit 0
+          fi
+          # untracked 파일도 감지하도록 먼저 stage한 뒤 index 기준으로 비교합니다.
+          git add state.json
+          if git diff --cached --quiet -- state.json; then
             echo "No state changes"
             exit 0
           fi
           git config user.name "gsai-notifier-bot"
           git config user.email "gsai-notifier-bot@users.noreply.github.com"
-          git add state.json
           git commit -m "chore: update feed state"
-          git push
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "push 실패(${attempt}회) — origin/main과 동기화 후 재시도"
+            sleep $((attempt * 3))
+            git pull --rebase origin main || { git rebase --abort || true; }
+          done
+          echo "::error::state.json push 실패 — 다음 실행에서 알림이 재전송될 수 있습니다"
+          exit 1
 
 

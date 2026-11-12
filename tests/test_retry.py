@@ -219,7 +219,8 @@ def test_fetch_feed_retries_then_succeeds(fake_requests, no_sleep, monkeypatch):
 
 def test_fetch_feed_waf_block_not_retried(fake_requests, no_sleep, monkeypatch):
     """WAF 차단(200 본문)은 일시적 오류가 아니므로 재시도하지 않고 즉시 실패."""
-    _install_fake_feedparser(monkeypatch, entries=[{"id": "a"}])
+    # 실제 차단 페이지는 피드가 아니므로 파싱하면 항목이 0개입니다.
+    _install_fake_feedparser(monkeypatch, entries=[])
     calls = {"n": 0}
 
     def blocked(*_a, **_k):
@@ -300,7 +301,7 @@ def test_send_to_slack_persistent_5xx_raises(fake_requests, no_sleep):
 
     fake_requests.post = always_500
 
-    with pytest.raises(_FakeHTTPError):
+    with pytest.raises(RuntimeError, match="Slack HTTP 502"):
         gn.send_to_slack("http://hook", {"text": "hi"}, dry_run=False)
     assert calls["n"] == 4  # 1 + 3 재시도
     assert no_sleep == [0.5, 1.0, 2.0]
