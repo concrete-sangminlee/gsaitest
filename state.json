@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/",
-      "updated_at": "2026-11-09T07:51:31.583587+00:00",
-      "last_published": "2026-11-09T13:01:13+00:00"
+      "last_id": "https://gsai.snu.ac.kr/한국공학한림원-공학의-가치-숏폼-콘테스트-개최1120금/",
+      "updated_at": "2026-11-16T07:52:08.578499+00:00",
+      "last_published": "2026-11-16T15:13:07+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026학년도-2학기-석사·박사통합과정-포기-처리-일정/",
@@ -27,9 +27,9 @@
       "last_published": "2026-11-03T13:42:04+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/채용-서울대학교-인지신경과학-연구실Connectome-/",
-      "updated_at": "2026-11-09T07:51:43.218448+00:00",
-      "last_published": "2026-11-09T10:29:15+00:00"
+      "last_id": "https://gsai.snu.ac.kr/한국공학한림원-공학의-가치-숏폼-콘테스트-개최1120금/",
+      "updated_at": "2026-11-16T07:52:16.795266+00:00",
+      "last_published": "2026-11-16T15:13:07+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-XLpzHDEo-20220216190236/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-대한민국-AI혁신인재-커넥트-참가-사진2026/",
@@ -37,9 +37,9 @@
       "last_published": "2026-08-21T17:52:06+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-3-SM-C3hoa745-20210308115330/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2026년-제2차-기업가정신-교육-기업가-정신의-핵심-/",
-      "updated_at": "2026-10-21T10:04:18.674678+00:00",
-      "last_published": "2026-10-21T16:10:07+00:00"
+      "last_id": "https://gsai.snu.ac.kr/IPAI-Seminar-추천-파운데이션-모델의-최신-동/",
+      "updated_at": "2026-11-16T07:52:18.582891+00:00",
+      "last_published": "2026-11-16T13:00:07+00:00"
     }
   },
   "sent_articles": {
@@ -66,6 +66,10 @@
     "https://gsai.snu.ac.kr/채용-서울대학교-인지신경과학-연구실Connectome-/": "2026-11-09T07:51:31.583558+00:00",
     "https://gsai.snu.ac.kr/18588/": "2026-11-09T07:51:31.583558+00:00",
     "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/": "2026-11-09T07:51:31.583558+00:00",
-    "https://gsai.snu.ac.kr/18590/": "2026-11-09T07:51:31.583558+00:00"
+    "https://gsai.snu.ac.kr/18590/": "2026-11-09T07:51:31.583558+00:00",
+    "https://gsai.snu.ac.kr/IPAI-Seminar-추천-파운데이션-모델의-최신-동/": "2026-11-16T07:52:08.578470+00:00",
+    "https://gsai.snu.ac.kr/18601/": "2026-11-16T07:52:08.578470+00:00",
+    "https://gsai.snu.ac.kr/한국공학한림원-공학의-가치-숏폼-콘테스트-개최1120금/": "2026-11-16T07:52:08.578470+00:00",
+    "https://gsai.snu.ac.kr/18604/": "2026-11-16T07:52:08.578470+00:00"
   }
 }
