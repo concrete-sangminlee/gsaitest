@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2026-2학기-수료예정자-명단-및-서류-제출-안내20/",
-      "updated_at": "2026-11-19T08:38:58.664455+00:00",
-      "last_published": "2026-11-19T15:24:53+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027학년도-1학기-대학원생-교내장학금-신청-안내12/",
+      "updated_at": "2026-11-20T08:23:10.900229+00:00",
+      "last_published": "2026-11-20T16:19:28+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-2학기-수료예정자-명단-및-서류-제출-안내20/",
@@ -17,9 +17,9 @@
       "last_published": "2026-11-19T11:22:07+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-yt0a40XN-20220217142409/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/2027학년도-관정이종환교육재단-기존신규-대학원-장학생/",
-      "updated_at": "2026-11-09T07:51:37.019913+00:00",
-      "last_published": "2026-11-09T13:01:13+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027학년도-1학기-대학원생-교내장학금-신청-안내12/",
+      "updated_at": "2026-11-20T08:23:16.276145+00:00",
+      "last_published": "2026-11-20T16:19:28+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
       "last_id": "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/",
@@ -74,6 +74,8 @@
     "https://gsai.snu.ac.kr/2026학년도-동계-계절수업-수강료-납부-및-환불-계획/": "2026-11-19T08:38:58.664428+00:00",
     "https://gsai.snu.ac.kr/18607/": "2026-11-19T08:38:58.664428+00:00",
     "https://gsai.snu.ac.kr/2026-2학기-수료예정자-명단-및-서류-제출-안내20/": "2026-11-19T08:38:58.664428+00:00",
-    "https://gsai.snu.ac.kr/18611/": "2026-11-19T08:38:58.664428+00:00"
+    "https://gsai.snu.ac.kr/18611/": "2026-11-19T08:38:58.664428+00:00",
+    "https://gsai.snu.ac.kr/2027학년도-1학기-대학원생-교내장학금-신청-안내12/": "2026-11-20T08:23:10.900213+00:00",
+    "https://gsai.snu.ac.kr/18615/": "2026-11-20T08:23:10.900213+00:00"
   }
 }
