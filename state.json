@@ -2,9 +2,9 @@
   "version": 1,
   "feeds": {
     "https://gsai.snu.ac.kr/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/채용-2026-신입-전-직군-공개채용1129/",
-      "updated_at": "2026-11-24T10:49:40.879591+00:00",
-      "last_published": "2026-11-24T15:09:21+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027-우후-대학원생-융복합-자율연구-지원-신청113/",
+      "updated_at": "2026-11-25T09:44:36.435505+00:00",
+      "last_published": "2026-11-25T09:43:05+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-l9dVZfzi-20220217142222/feed/": {
       "last_id": "https://gsai.snu.ac.kr/2026-2학기-수료예정자-명단-및-서류-제출-안내20/",
@@ -22,9 +22,9 @@
       "last_published": "2026-11-23T14:56:40+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-4q7I1Z6R-20220215145657/feed/": {
-      "last_id": "https://gsai.snu.ac.kr/추가지원-2026년-하반기-BK21-4단계-대학원혁신사/",
-      "updated_at": "2026-11-03T07:48:31.899059+00:00",
-      "last_published": "2026-11-03T13:42:04+00:00"
+      "last_id": "https://gsai.snu.ac.kr/2027-우후-대학원생-융복합-자율연구-지원-신청113/",
+      "updated_at": "2026-11-25T09:44:52.003450+00:00",
+      "last_published": "2026-11-25T09:43:05+00:00"
     },
     "https://gsai.snu.ac.kr/category/board-89-GN-lB30HU92-20260227201516/feed/": {
       "last_id": "https://gsai.snu.ac.kr/채용-2026-신입-전-직군-공개채용1129/",
@@ -80,6 +80,8 @@
     "https://gsai.snu.ac.kr/인턴십-2027-안랩-체험형-인턴십-1130/": "2026-11-24T10:49:40.879561+00:00",
     "https://gsai.snu.ac.kr/18623/": "2026-11-24T10:49:40.879561+00:00",
     "https://gsai.snu.ac.kr/채용-2026-신입-전-직군-공개채용1129/": "2026-11-24T10:49:40.879561+00:00",
-    "https://gsai.snu.ac.kr/18625/": "2026-11-24T10:49:40.879561+00:00"
+    "https://gsai.snu.ac.kr/18625/": "2026-11-24T10:49:40.879561+00:00",
+    "https://gsai.snu.ac.kr/2027-우후-대학원생-융복합-자율연구-지원-신청113/": "2026-11-25T09:44:36.435474+00:00",
+    "https://gsai.snu.ac.kr/18627/": "2026-11-25T09:44:36.435474+00:00"
   }
 }
