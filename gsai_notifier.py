@@ -471,8 +471,13 @@ def fetch_feed(url: str, *, verify_ssl: bool) -> Any:
     return parsed
 
 
-def entry_uid(entry: Entry) -> str:
-    # WordPress RSS는 보통 guid / link가 안정적입니다.
+# WordPress가 글 번호로 만든 주소(예: https://gsai.snu.ac.kr/18486/). 글 번호는 사이트
+# 안에서 유일하고 바뀌지 않으므로 글을 구별하는 가장 확실한 값입니다.
+_NUMERIC_PERMALINK = re.compile(r"^https?://[^/?#]+/\d+/?$")
+
+
+def _legacy_uid(entry: Entry) -> str:
+    """예전 식별자 규칙(id > guid > link > 제목|발행시각). 과거 state.json의 기준점과 비교용."""
     for key in ("id", "guid", "link"):
         v = entry.get(key)
         if isinstance(v, str) and v.strip():
@@ -480,6 +485,26 @@ def entry_uid(entry: Entry) -> str:
     title = (entry.get("title") or "").strip()
     published = (entry.get("published") or entry.get("updated") or "").strip()
     return f"{title}|{published}"
+
+
+def entry_uid(entry: Entry) -> str:
+    """글 식별자. 글 번호 주소가 있으면 그것을, 없으면 예전 규칙(id 우선)을 씁니다.
+
+    이 사이트의 guid는 제목을 앞 30자에서 자른 주소라(실측 70개 중 62개가 정확히 30자)
+    앞부분이 같은 두 글이 같은 guid를 가질 수 있습니다. 그러면 새 글이 '이미 보낸 글'로
+    판정되어 조용히 누락됩니다. 글 번호 주소는 그런 충돌이 없습니다.
+    """
+    link = entry.get("link")
+    if isinstance(link, str) and _NUMERIC_PERMALINK.match(link.strip()):
+        return link.strip()
+    return _legacy_uid(entry)
+
+
+def _is_bookmark(entry: Entry, last_seen_id: str | None) -> bool:
+    """이 글이 저장된 기준점인지. 식별자 규칙을 바꾸기 전에 저장된 기준점(guid)도 인정합니다."""
+    if last_seen_id is None:
+        return False
+    return entry_uid(entry) == last_seen_id or _legacy_uid(entry) == last_seen_id
 
 
 def entry_title(entry: Entry) -> str:
@@ -657,7 +682,7 @@ def compute_new_entries(
     new_entries: list[Entry] = []
     found = False
     for e in entries:
-        if entry_uid(e) == last_seen_id:
+        if _is_bookmark(e, last_seen_id):
             found = True
             break
         new_entries.append(e)
@@ -1220,7 +1245,7 @@ def _process_feed(
         return 0
 
     new_entries, newest_id, found = compute_new_entries(entries, last_seen_id, last_published)
-    if found and new_entries and not any(entry_uid(e) == last_seen_id for e in entries):
+    if found and new_entries and not any(_is_bookmark(e, last_seen_id) for e in entries):
         # 기준 글이 사라졌지만 발행 시각으로 복구된 경우입니다.
         summary.state_recoveries += 1
     # 다른 피드 또는 이전 실행에서 이미 보낸 글 제거 (uid+link 이중 검사)
