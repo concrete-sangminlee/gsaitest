@@ -276,6 +276,42 @@ class Config:
     dry_run: bool
     notion_token: str | None
     notion_page_id: str | None
+    # (시작 시, 끝 시) KST. 이 시간대에는 아무것도 보내지 않고 다음 실행으로 미룹니다.
+    quiet_hours: tuple[int, int] | None = None
+
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _now_kst() -> datetime:
+    """현재 KST 시각. 테스트에서 monkeypatch할 수 있도록 함수로 둡니다."""
+    return datetime.now(_KST)
+
+
+def _parse_quiet_hours(value: str | None) -> tuple[int, int] | None:
+    """ "22-8" 형식(KST 시 단위, 끝 시각 미포함)을 (22, 8)로 해석합니다. 비어 있으면 None."""
+    if value is None or not value.strip():
+        return None
+    parts = value.strip().split("-")
+    try:
+        if len(parts) != 2:
+            raise ValueError
+        start, end = (int(p.strip()) for p in parts)
+    except ValueError:
+        raise ValueError(f"QUIET_HOURS 형식이 올바르지 않습니다(예: 22-8): {value!r}") from None
+    if not (0 <= start <= 23 and 0 <= end <= 23) or start == end:
+        raise ValueError(f"QUIET_HOURS는 0~23 사이의 서로 다른 두 시각이어야 합니다: {value!r}")
+    return start, end
+
+
+def _in_quiet_hours(hour: int, quiet_hours: tuple[int, int] | None) -> bool:
+    """hour(0~23)가 조용한 시간대 [start, end)에 드는지. 자정을 넘는 구간(22-8)도 처리합니다."""
+    if quiet_hours is None:
+        return False
+    start, end = quiet_hours
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
 
 
 def load_config() -> Config:
@@ -309,6 +345,7 @@ def load_config() -> Config:
 
     notion_token = os.getenv("NOTION_TOKEN")
     notion_page_id = os.getenv("NOTION_PAGE_ID")
+    quiet_hours = _parse_quiet_hours(os.getenv("QUIET_HOURS"))
 
     return Config(
         slack_webhook_url=slack_webhook_url,
@@ -321,6 +358,7 @@ def load_config() -> Config:
         dry_run=dry_run,
         notion_token=notion_token,
         notion_page_id=notion_page_id,
+        quiet_hours=quiet_hours,
     )
 
 
@@ -1191,6 +1229,18 @@ def _process_feed(
 
 
 def run_once(cfg: Config) -> int:
+    now = _now_kst()
+    if cfg.quiet_hours is not None and _in_quiet_hours(now.hour, cfg.quiet_hours):
+        # 피드도 상태도 건드리지 않습니다. 이 시간대에 올라온 글은 다음 실행에서 보냅니다.
+        start, end = cfg.quiet_hours
+        LOG.info(
+            "조용한 시간(%02d:00~%02d:00 KST)이라 건너뜁니다. 현재 %s",
+            start,
+            end,
+            now.strftime("%H:%M KST"),
+        )
+        return 0
+
     try:
         state = load_state(cfg.state_file, strict=True)
     except StateFileError as e:
