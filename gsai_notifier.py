@@ -486,6 +486,30 @@ def entry_title(entry: Entry) -> str:
     return (entry.get("title") or "").strip()
 
 
+# WordPress가 모든 글에 기본으로 붙이는 카테고리. 정보가 없으므로 표시하지 않습니다.
+_GENERIC_CATEGORIES = frozenset({"분류되지 않음", "uncategorized", "미분류"})
+
+
+def entry_categories(entry: Entry) -> list[str]:
+    """글의 게시판(카테고리) 이름들. 기본 카테고리는 빼고, 순서는 유지하며 중복을 없앱니다."""
+    names: list[str] = []
+    for tag in entry.get("tags") or []:
+        term = (tag.get("term") or "").strip() if isinstance(tag, Mapping) else ""
+        if term and term.lower() not in _GENERIC_CATEGORIES and term not in names:
+            names.append(term)
+    return names
+
+
+def _clean_feed_title(title: str) -> str:
+    """카테고리 피드 제목의 'Archives - 사이트명' 꼬리를 떼어 게시판 이름만 남깁니다.
+
+    예: "장학/국제 Archives - 협동과정 인공지능 전공" → "장학/국제"
+    """
+    title = title.strip()
+    head, sep, _site = title.partition(" Archives - ")
+    return head.strip() if sep and head.strip() else title
+
+
 def entry_link(entry: Entry) -> str:
     return (entry.get("link") or "").strip()
 
@@ -669,6 +693,28 @@ def _format_date_kr(pub_str: str, entry: Entry) -> str:
     return pub_str[:10] if pub_str else ""
 
 
+def _slack_escape(text: str) -> str:
+    """Slack mrkdwn 규칙대로 &, <, >를 이스케이프합니다.
+
+    Slack은 <...>를 링크/멘션(<!channel>, <@U...>)으로 해석하므로, 제목에 이 문자가
+    있으면 글자가 사라지거나 엉뚱한 링크·전체 알림이 될 수 있습니다.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _slack_title(title: str) -> str:
+    """굵게(*...*) 감싸 넣을 제목. 이스케이프에 더해 서식 기호를 비슷한 전각 문자로 바꿉니다.
+
+    제목 속 '*'는 굵게 구간을 끊고, '~'는 두 번 나오면 그 사이가 취소선이 됩니다.
+    마감일 표기(~11/30)에 '~'가 흔해서, 한글 문서에서 같은 뜻으로 쓰는 '～'로 바꿉니다.
+    """
+    return _slack_escape(title).replace("*", "＊").replace("~", "～")
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _now_kst_str() -> str:
     """현재 KST 시각을 포맷팅합니다."""
     kst = timezone(timedelta(hours=9))
@@ -687,6 +733,7 @@ def format_slack_payload(
 ) -> dict[str, Any]:
     """Slack Block Kit 기반 프리미엄 페이로드를 생성합니다."""
     count = len(items)
+    feed_title = _clean_feed_title(feed_title)
     subtitle = f"🔔 {count}건의 새로운 글"
     if total > 1:
         subtitle += f"  ({index}/{total})"
@@ -696,7 +743,8 @@ def format_slack_payload(
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"📢 {feed_title} 새 글",
+                # header는 plain_text이고 최대 150자입니다.
+                "text": _truncate(f"📢 {feed_title} 새 글", 150),
                 "emoji": True,
             },
         },
@@ -715,9 +763,13 @@ def format_slack_payload(
         pub = entry_pub(e)
         date_str = _format_date_kr(pub, e)
 
-        section_text = f"> *{title}*"
+        meta = [f"🏷️ {_slack_escape(', '.join(cats))}"] if (cats := entry_categories(e)) else []
         if date_str:
-            section_text += f"\n> 📅 {date_str}"
+            meta.append(f"📅 {date_str}")
+
+        section_text = f"> *{_slack_title(title)}*"
+        if meta:
+            section_text += "\n> " + "  ·  ".join(meta)
 
         section: dict[str, Any] = {
             "type": "section",
@@ -756,7 +808,15 @@ def format_slack_payload(
         ]
     )
 
-    fallback = f"📢 {feed_title} 새 글 {count}건"
+    # 메시지 맨 위 한 줄이자 모바일 푸시/데스크톱 알림에 보이는 문구입니다. 게시판 이름만
+    # 있으면 무슨 글인지 알 수 없으므로 첫 글 제목을 넣습니다.
+    first_title = entry_title(items[0]) if items else ""
+    if not first_title:
+        fallback = f"📢 {feed_title} 새 글 {count}건"
+    elif count == 1:
+        fallback = f"📢 {_slack_escape(first_title)}"
+    else:
+        fallback = f"📢 {_slack_escape(first_title)} 외 {count - 1}건"
     return {
         "text": fallback,
         "unfurl_links": False,
@@ -1122,7 +1182,7 @@ def _process_feed(
         LOG.exception("피드 가져오기 실패: %s (%s)", feed_url, e)
         return 2
 
-    feed_title = (parsed.feed.get("title") or feed_url).strip()
+    feed_title = _clean_feed_title(parsed.feed.get("title") or feed_url)
     site_url = (parsed.feed.get("link") or "").strip()
     entries = list(parsed.entries or [])
 
