@@ -2,11 +2,11 @@ name: GSAI RSS → Slack Notify
 
 on:
   schedule:
-    # 아래 시각은 한국 시간(KST=UTC+9)을 UTC로 변환한 값입니다.
-    # GitHub Actions 스케줄은 UTC 기준으로 동작하며, 플랫폼 특성상 수 분 지연될 수 있습니다.
-    - cron: "7 1 * * *"    # 10:07 KST
-    - cron: "14 5 * * *"   # 14:14 KST (오후 2:14)
-    - cron: "13 10 * * *"  # 19:13 KST (오후 7:13)
+    # 매시간 23분(UTC 기준)에 예약합니다. 정해진 시각 몇 개만 예약하면 GitHub이 실행을
+    # 크게 미뤄(실측 평균 7~9시간, 최대 12시간) 공지가 새벽에 도착했습니다. 자주 예약하면
+    # 개별 실행이 밀려도 실제 실행 간격이 짧아지고, 밤에는 아래 QUIET_HOURS가 전송을
+    # 막아 다음 날 아침 첫 실행으로 미룹니다. 정각은 GitHub이 가장 붐비는 시간이라 피합니다.
+    - cron: "23 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -51,6 +51,8 @@ jobs:
           # 수동 실행(workflow_dispatch)에서는 동작 확인을 위해 최신 1개를 한 번 보내고,
           # 스케줄 실행(schedule)에서는 첫 실행에 알림을 보내지 않습니다(스팸/중복 방지).
           INITIAL_NOTIFY_COUNT: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          # 스케줄 실행은 22:00~08:00 KST에 보내지 않습니다. 수동 실행은 시간과 무관하게 보냅니다.
+          QUIET_HOURS: ${{ github.event_name == 'schedule' && '22-8' || '' }}
           ON_STATE_MISS: "skip"
           MAX_ITEMS_PER_MESSAGE: "10"
           VERIFY_SSL: "true"

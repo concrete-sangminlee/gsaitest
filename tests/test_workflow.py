@@ -64,3 +64,19 @@ def test_checkout_reads_latest_main():
 
 def test_job_has_timeout():
     assert re.search(r"^\s+timeout-minutes:\s*\d+\s*$", _text(), re.MULTILINE)
+
+
+def test_quiet_hours_apply_only_to_scheduled_runs():
+    """수동 실행은 밤에도 보내야 하므로 QUIET_HOURS는 schedule 이벤트에만 줍니다."""
+    m = re.search(r"^\s+QUIET_HOURS:\s*(.+)$", _text(), re.MULTILINE)
+    assert m, "QUIET_HOURS가 워크플로우에 없습니다"
+    assert "github.event_name == 'schedule'" in m.group(1)
+
+
+def test_schedule_runs_frequently_off_the_hour():
+    """정해진 몇 시각만 예약하면 GitHub 지연 때문에 새벽에 도착합니다(매시간, 정각 회피)."""
+    crons = re.findall(r'^\s+- cron:\s*"([^"]+)"', _text(), re.MULTILINE)
+    assert crons, "schedule cron이 없습니다"
+    minute, hour = crons[0].split()[:2]
+    assert hour == "*"
+    assert minute != "0"
