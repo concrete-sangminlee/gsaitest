@@ -30,11 +30,21 @@ def test_top_level_structure_and_unfurl_flags():
     assert payload["attachments"][0]["color"] == "#003876"
 
 
-def test_fallback_text_includes_count():
+def test_fallback_text_shows_first_title_and_remaining_count():
+    """맨 위 한 줄(=푸시 알림 문구)에 무슨 글인지 보이도록 첫 글 제목을 넣습니다."""
     items = [{"title": "a", "link": "http://x/1"}, {"title": "b", "link": "http://x/2"}]
     payload = _make_payload(items)
-    assert "2" in payload["text"]
-    assert "테스트 피드" in payload["text"]
+    assert payload["text"] == "📢 a 외 1건"
+
+
+def test_fallback_text_single_item_is_its_title():
+    payload = _make_payload([{"title": "장학금 안내", "link": "http://x/1"}])
+    assert payload["text"] == "📢 장학금 안내"
+
+
+def test_fallback_text_without_title_uses_feed_name_and_count():
+    payload = _make_payload([{"title": "", "link": "http://x/1"}, {"title": "b"}])
+    assert payload["text"] == "📢 테스트 피드 새 글 2건"
 
 
 def test_expected_block_types_present():
