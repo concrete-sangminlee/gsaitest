@@ -1,0 +1,21 @@
+# 의존성·액션 업데이트 PR을 매달 한 번, 묶어서 받습니다(PR이 쌓이지 않도록).
+# CI가 PR마다 lint/type/test를 돌리므로 초록이면 머지하면 됩니다.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
