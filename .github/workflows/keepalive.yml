@@ -2,7 +2,9 @@ name: Keepalive Workflow
 
 on:
   schedule:
-    # 매 50일마다 실행 (60일 비활성 제한 전에 갱신)
+    # 매월 1일·21일에 확인하고, 마지막 커밋 후 50일이 지났을 때만 동작합니다(time_elapsed).
+    # GitHub은 public 저장소에 60일간 활동이 없으면 예약 실행을 끕니다. 새 글이 오래 없어
+    # 봇 커밋이 끊기는 기간(방학 등)에 알림 워크플로우가 꺼지지 않도록 막아 줍니다.
     - cron: "0 0 1,21 * *"
   workflow_dispatch:
 
@@ -15,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Keepalive
         uses: gautamkrishnar/keepalive-workflow@v2
