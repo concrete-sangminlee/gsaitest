@@ -24,14 +24,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # 트리거 시점 SHA가 아니라 항상 최신 main을 읽습니다. 그렇지 않으면 대기하던
           # 실행이나 "Re-run"이 오래된 state.json으로 돌아 이미 보낸 글을 다시 보냅니다.
           ref: main
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
